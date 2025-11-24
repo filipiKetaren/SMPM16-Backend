@@ -1,0 +1,36 @@
+<?php
+// app/Providers/AppServiceProvider.php
+
+namespace App\Providers;
+
+use Illuminate\Support\ServiceProvider;
+use App\Repositories\Interfaces\StudentRepositoryInterface;
+use App\Repositories\Eloquent\StudentRepository;
+use App\Repositories\Interfaces\SppPaymentRepositoryInterface;
+use App\Repositories\Eloquent\SppPaymentRepository;
+use App\Repositories\Interfaces\SppSettingRepositoryInterface;
+use App\Repositories\Eloquent\SppSettingRepository;
+use App\Repositories\Interfaces\DashboardRepositoryInterface;
+use App\Repositories\Eloquent\DashboardRepository;
+use App\Repositories\Interfaces\SavingsRepositoryInterface;
+use App\Repositories\Eloquent\SavingsRepository;
+use App\Repositories\Interfaces\ParentRepositoryInterface;
+use App\Repositories\Eloquent\ParentRepository;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this->app->bind(StudentRepositoryInterface::class, StudentRepository::class);
+        $this->app->bind(SppPaymentRepositoryInterface::class, SppPaymentRepository::class);
+        $this->app->bind(SppSettingRepositoryInterface::class, SppSettingRepository::class);
+        $this->app->bind(DashboardRepositoryInterface::class, DashboardRepository::class);
+        $this->app->bind(SavingsRepositoryInterface::class, SavingsRepository::class);
+        $this->app->bind(ParentRepositoryInterface::class, ParentRepository::class);
+    }
+
+    public function boot(): void
+    {
+        //
+    }
+}
