@@ -35,4 +35,9 @@ class StudentRepository implements StudentRepositoryInterface
     {
         return Student::find($id);
     }
+
+        public function findStudentWithClass(int $studentId)
+    {
+        return Student::with('class')->find($studentId);
+    }
 }

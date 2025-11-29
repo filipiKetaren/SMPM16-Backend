@@ -41,7 +41,7 @@ class FinanceDashboardService extends BaseService
             return $this->success($data, 'Data dashboard berhasil diambil', 200);
 
         } catch (\Exception $e) {
-            return $this->error('Gagal mengambil data dashboard: ' . $e->getMessage(), null, 500);
+            return $this->serverError('Gagal mengambil data dashboard: ' . $e->getMessage(), null, 500);
         }
     }
 
@@ -54,9 +54,9 @@ class FinanceDashboardService extends BaseService
                 'unpaid_students' => $this->dashboardRepository->getUnpaidStudentsCount($year, $month),
             ],
             'savings' => [
-                'total_deposits' => 0, // Akan diimplementasikan nanti
-                'total_withdrawals' => 0,
-                'current_balance' => 0,
+                'total_deposits' => $this->dashboardRepository->getTotalSavingsDepositsThisMonth($year, $month),
+                'total_withdrawals' => $this->dashboardRepository->getTotalSavingsWithdrawalsThisMonth($year, $month),
+                'current_balance' => $this->dashboardRepository->getTotalSavingsBalance(),
             ],
             'students' => [
                 'total_active' => $this->dashboardRepository->getTotalActiveStudents(),
@@ -69,6 +69,7 @@ class FinanceDashboardService extends BaseService
     private function getChartsData(int $year): array
     {
         $sppMonthlyData = $this->dashboardRepository->getSppMonthlyData($year);
+        $savingsMonthlyData = $this->dashboardRepository->getSavingsMonthlyData($year);
 
         return [
             'spp_monthly' => [
@@ -76,9 +77,9 @@ class FinanceDashboardService extends BaseService
                 'data' => array_column($sppMonthlyData, 'total')
             ],
             'savings_trend' => [
-                'labels' => ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'],
-                'deposits' => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // Dummy data untuk sekarang
-                'withdrawals' => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                'labels' => array_column($savingsMonthlyData, 'month_name'),
+                'deposits' => array_column($savingsMonthlyData, 'deposits'),
+                'withdrawals' => array_column($savingsMonthlyData, 'withdrawals')
             ],
             'students_by_class' => $this->dashboardRepository->getStudentCountByClass()
         ];
@@ -86,10 +87,14 @@ class FinanceDashboardService extends BaseService
 
     private function getRecentActivities(): array
     {
-        $recentPayments = $this->dashboardRepository->getRecentPayments(5);
+        $recentPayments = $this->dashboardRepository->getRecentPayments(3);
+        $recentSavings = $this->dashboardRepository->getRecentSavingsTransactions(2);
 
-        return array_map(function ($payment) {
-            return [
+        $activities = [];
+
+        // Gabungkan aktivitas SPP dan tabungan
+        foreach ($recentPayments as $payment) {
+            $activities[] = [
                 'type' => 'spp_payment',
                 'title' => 'Pembayaran SPP',
                 'description' => "{$payment['student_name']} - {$payment['class']}",
@@ -99,6 +104,27 @@ class FinanceDashboardService extends BaseService
                 'time' => Carbon::parse($payment['payment_date'])->format('H:i'),
                 'user' => $payment['created_by']
             ];
-        }, $recentPayments);
+        }
+
+        foreach ($recentSavings as $savings) {
+            $activities[] = [
+                'type' => 'savings_' . $savings['transaction_type'],
+                'title' => $savings['transaction_type'] === 'deposit' ? 'Setoran Tabungan' : 'Penarikan Tabungan',
+                'description' => "{$savings['student_name']} - {$savings['class']}",
+                'amount' => $savings['amount'],
+                'receipt_number' => $savings['transaction_number'],
+                'date' => $savings['transaction_date'],
+                'time' => Carbon::parse($savings['transaction_date'])->format('H:i'),
+                'user' => $savings['created_by']
+            ];
+        }
+
+        // Urutkan berdasarkan tanggal terbaru
+        usort($activities, function($a, $b) {
+            return strtotime($b['date'] . ' ' . $b['time']) - strtotime($a['date'] . ' ' . $a['time']);
+        });
+
+        // Ambil 5 aktivitas terbaru
+        return array_slice($activities, 0, 5);
     }
 }

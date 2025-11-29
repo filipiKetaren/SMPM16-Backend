@@ -7,7 +7,7 @@ use App\Repositories\Interfaces\SavingsRepositoryInterface;
 use App\Repositories\Interfaces\StudentRepositoryInterface;
 use App\Services\BaseService;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\log;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 use Illuminate\Validation\ValidationException;
 
@@ -22,13 +22,20 @@ class SavingsService extends BaseService
     {
         DB::beginTransaction();
         try {
-            // Validasi data input sebelum proses DTO
-            $validationResult = $this->validateRequestData($data);
-            if ($validationResult['status'] === 'error') {
+            // ⚠️ PERBAIKAN: Validasi required fields TERLEBIH DAHULU
+            $validationResult = $this->validateTransactionRequiredFields($data);
+            if ($validationResult) {
                 return $validationResult;
             }
 
-            $transactionData = SavingsTransactionData::fromRequest($data);
+            // Coba buat DTO, jika ada ValidationException, tangkap dan format ulang
+            try {
+                $transactionData = SavingsTransactionData::fromRequest($data);
+            } catch (ValidationException $e) {
+                return $this->validationError($e->errors(), 'Validasi data transaksi gagal');
+            } catch (\Exception $e) {
+                return $this->serverError('Gagal memproses data transaksi', $e);
+            }
 
             // Validasi transaksi bisnis
             $validationResult = $this->validateTransaction($transactionData);
@@ -68,27 +75,24 @@ class SavingsService extends BaseService
 
             return $this->success($transaction, 'Transaksi tabungan berhasil diproses', 201);
 
-        } catch (ValidationException $e) {
-            DB::rollBack();
-            return $this->error('Validasi gagal: ' . $e->getMessage(), $e->errors(), 422);
         } catch (\Exception $e) {
             DB::rollBack();
-            // Log error untuk debugging
             Log::error('Savings transaction error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
                 'data' => $data
             ]);
-            return $this->error('Gagal memproses transaksi: ' . $e->getMessage(), null, 500);
+            return $this->serverError('Gagal memproses transaksi tabungan', $e);
         }
     }
 
     /**
-     * Validasi dasar data request sebelum diproses DTO
+     * Validasi required fields untuk transaksi tabungan
      */
-    private function validateRequestData(array $data)
+    private function validateTransactionRequiredFields(array $data)
     {
+        $errors = [];
         $requiredFields = [
-            'student_id' => 'ID Siswa',
+            'student_id' => 'Siswa',
             'transaction_type' => 'Jenis Transaksi',
             'amount' => 'Jumlah Transaksi',
             'transaction_date' => 'Tanggal Transaksi'
@@ -96,35 +100,55 @@ class SavingsService extends BaseService
 
         foreach ($requiredFields as $field => $label) {
             if (!isset($data[$field]) || $data[$field] === '') {
-                return $this->error("Field {$label} harus diisi", ['field' => $field], 422);
+                $errors[$field] = ["{$label} harus diisi"];
             }
+        }
+
+        // Validasi tipe data numerik
+        if (isset($data['student_id']) && !is_numeric($data['student_id'])) {
+            $errors['student_id'] = ['ID Siswa harus berupa angka'];
+        }
+
+        if (isset($data['amount']) && !is_numeric($data['amount'])) {
+            $errors['amount'] = ['Jumlah transaksi harus berupa angka'];
+        }
+
+        if (isset($data['amount']) && is_numeric($data['amount']) && $data['amount'] <= 0) {
+            $errors['amount'] = ['Jumlah transaksi harus lebih dari 0'];
         }
 
         // Validasi tipe transaksi
         if (isset($data['transaction_type']) && !in_array($data['transaction_type'], ['deposit', 'withdrawal'])) {
-            return $this->error('Jenis transaksi harus deposit atau withdrawal',
-            ['deposit' => 'deposit',
-            'withdrawal' => 'withdrawal'],
-            422);
+            $errors['transaction_type'] = ['Jenis transaksi harus deposit atau withdrawal'];
         }
 
-        // Validasi amount
-        if (isset($data['amount']) && (!is_numeric($data['amount']) || $data['amount'] <= 0)) {
-            return $this->error('Jumlah transaksi harus angka dan lebih dari 0',
-            ['amount' => $data['amount']],
-             422);
+        // Validasi format tanggal
+        if (isset($data['transaction_date']) && $data['transaction_date'] !== '') {
+            if (!strtotime($data['transaction_date'])) {
+                $errors['transaction_date'] = ['Format tanggal transaksi tidak valid'];
+            }
         }
 
-        return $this->success(null, 'Validasi data berhasil', 200);
+        if (!empty($errors)) {
+            return $this->validationError($errors, 'Data transaksi tidak lengkap');
+        }
+
+        return null;
     }
 
     public function updateTransaction(int $transactionId, array $data, int $updatedBy)
     {
         DB::beginTransaction();
         try {
+            // ⚠️ PERBAIKAN: Validasi required fields untuk update
+            $validationResult = $this->validateTransactionRequiredFields($data);
+            if ($validationResult) {
+                return $validationResult;
+            }
+
             $existingTransaction = $this->savingsRepository->findTransaction($transactionId);
             if (!$existingTransaction) {
-                return $this->error('Transaksi tidak ditemukan', null, 404);
+                return $this->notFoundError('Transaksi tidak ditemukan');
             }
 
             // Untuk update, kita perlu menghitung ulang semua transaksi setelahnya
@@ -133,10 +157,18 @@ class SavingsService extends BaseService
                 ->first();
 
             if ($lastTransaction->id !== $transactionId) {
-                return $this->error('Hanya transaksi terakhir yang dapat diupdate', null, 422);
+                return $this->validationError(
+                    ['transaction_id' => ['Hanya transaksi terakhir yang dapat diupdate']],
+                    'Transaksi tidak dapat diupdate'
+                );
             }
 
-            $transactionData = SavingsTransactionData::fromRequest($data);
+            // Coba buat DTO
+            try {
+                $transactionData = SavingsTransactionData::fromRequest($data);
+            } catch (ValidationException $e) {
+                return $this->validationError($e->errors(), 'Validasi data transaksi gagal');
+            }
 
             // Validasi
             $validationResult = $this->validateTransaction($transactionData, $existingTransaction->student_id);
@@ -175,7 +207,7 @@ class SavingsService extends BaseService
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->error('Gagal mengupdate transaksi: ' . $e->getMessage(), null, 500);
+            return $this->serverError('Gagal mengupdate transaksi tabungan', $e);
         }
     }
 
@@ -185,7 +217,7 @@ class SavingsService extends BaseService
         try {
             $transaction = $this->savingsRepository->findTransaction($transactionId);
             if (!$transaction) {
-                return $this->error('Transaksi tidak ditemukan', null, 404);
+                return $this->notFoundError('Transaksi tidak ditemukan');
             }
 
             // Hanya boleh hapus transaksi terakhir
@@ -193,7 +225,10 @@ class SavingsService extends BaseService
                 ->first();
 
             if ($lastTransaction->id !== $transactionId) {
-                return $this->error('Hanya transaksi terakhir yang dapat dihapus', null, 422);
+                return $this->validationError(
+                    ['transaction_id' => ['Hanya transaksi terakhir yang dapat dihapus']],
+                    'Transaksi tidak dapat dihapus'
+                );
             }
 
             $deleted = $this->savingsRepository->deleteTransaction($transactionId);
@@ -208,7 +243,7 @@ class SavingsService extends BaseService
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->error('Gagal menghapus transaksi: ' . $e->getMessage(), null, 500);
+            return $this->serverError('Gagal menghapus transaksi tabungan', $e);
         }
     }
 
@@ -218,13 +253,13 @@ class SavingsService extends BaseService
             $transaction = $this->savingsRepository->getTransactionWithDetails($transactionId);
 
             if (!$transaction) {
-                return $this->error('Transaksi tidak ditemukan', null, 404);
+                return $this->notFoundError('Transaksi tidak ditemukan');
             }
 
             return $this->success($transaction, 'Detail transaksi berhasil diambil', 200);
 
         } catch (\Exception $e) {
-            return $this->error('Gagal mengambil detail transaksi: ' . $e->getMessage(), null, 500);
+            return $this->serverError('Gagal mengambil detail transaksi tabungan', $e);
         }
     }
 
@@ -233,7 +268,7 @@ class SavingsService extends BaseService
         try {
             $student = $this->studentRepository->getStudentById($studentId);
             if (!$student) {
-                return $this->error('Siswa tidak ditemukan', null, 404);
+                return $this->notFoundError('Siswa tidak ditemukan');
             }
 
             $transactions = $this->savingsRepository->getStudentTransactions($studentId);
@@ -257,7 +292,7 @@ class SavingsService extends BaseService
             return $this->success($data, 'Data tabungan siswa berhasil diambil', 200);
 
         } catch (\Exception $e) {
-            return $this->error('Gagal mengambil data tabungan: ' . $e->getMessage(), null, 500);
+            return $this->serverError('Gagal mengambil data tabungan siswa', $e);
         }
     }
 
@@ -285,40 +320,41 @@ class SavingsService extends BaseService
             return $this->success($students, 'Data tabungan semua siswa berhasil diambil', 200);
 
         } catch (\Exception $e) {
-            return $this->error('Gagal mengambil data tabungan: ' . $e->getMessage(), null, 500);
+            return $this->serverError('Gagal mengambil data tabungan semua siswa', $e);
         }
     }
 
-    private function validateTransaction(SavingsTransactionData $transactionData)
+    /**
+     * Validasi bisnis untuk transaksi tabungan
+     */
+    private function validateTransaction(SavingsTransactionData $transactionData, ?int $studentId = null)
     {
-        try {
-            // Validasi student exists
-            $student = $this->studentRepository->getStudentById($transactionData->studentId);
-            if (!$student) {
-                return $this->error('Siswa tidak ditemukan', null, 404);
-            }
+        $targetStudentId = $studentId ?? $transactionData->studentId;
 
-            // Validasi amount sudah dilakukan di DTO, tapi double check
-            if ($transactionData->amount <= 0) {
-                return $this->error('Jumlah transaksi harus lebih dari 0', null, 422);
-            }
-
-            // Validasi saldo untuk penarikan
-            if ($transactionData->transactionType === 'withdrawal') {
-                $currentBalance = $this->savingsRepository->getStudentCurrentBalance($transactionData->studentId);
-                if ($transactionData->amount > $currentBalance) {
-                    return $this->error('Saldo tidak cukup untuk penarikan', [
-                        'current_balance' => $currentBalance,
-                        'withdrawal_amount' => $transactionData->amount
-                    ], 422);
-                }
-            }
-
-            return $this->success(null, 'Validasi berhasil', 200);
-
-        } catch (\Exception $e) {
-            return $this->error('Validasi transaksi gagal: ' . $e->getMessage(), null, 500);
+        // Validasi student exists
+        $student = $this->studentRepository->getStudentById($targetStudentId);
+        if (!$student) {
+            return $this->notFoundError('Siswa tidak ditemukan');
         }
+
+        // Validasi saldo untuk penarikan
+        if ($transactionData->transactionType === 'withdrawal') {
+            $currentBalance = $this->savingsRepository->getStudentCurrentBalance($targetStudentId);
+            if ($transactionData->amount > $currentBalance) {
+                return $this->validationError(
+                    [
+                        'amount' => [
+                            'Saldo tidak cukup untuk penarikan. Saldo saat ini: Rp ' .
+                            number_format($currentBalance, 0, ',', '.') .
+                            ', Jumlah penarikan: Rp ' . number_format($transactionData->amount, 0, ',', '.')
+                        ]
+                    ],
+                    'Saldo tidak mencukupi'
+                );
+            }
+        }
+
+        return $this->success(null, 'Validasi transaksi berhasil', 200);
     }
 
     private function generateTransactionNumber(): string

@@ -78,4 +78,31 @@ class SppPaymentRepository implements SppPaymentRepositoryInterface
     {
         return SppPayment::where('receipt_number', $receiptNumber)->first();
     }
+
+    public function getLastPaymentByStudent(int $studentId): ?SppPayment
+    {
+        return SppPayment::where('student_id', $studentId)
+            ->orderBy('payment_date', 'desc')
+            ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->first();
+    }
+
+    public function getStudentPaymentCount(int $studentId): int
+    {
+        return SppPayment::where('student_id', $studentId)->count();
+    }
+
+    public function getLatestPaymentByStudent(int $studentId): ?SppPayment
+    {
+        return SppPayment::where('student_id', $studentId)
+            ->with(['paymentDetails' => function($query) {
+                $query->orderBy('year', 'desc')
+                      ->orderBy('month', 'desc');
+            }])
+            ->orderBy('payment_date', 'desc')
+            ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->first();
+    }
 }

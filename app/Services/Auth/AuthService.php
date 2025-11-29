@@ -23,7 +23,7 @@ class AuthService extends BaseService
             ]);
 
             if ($validator->fails()) {
-                return $this->error('Validasi gagal', $validator->errors(), 422);
+                return $this->validationError($validator->errors()->toArray(), 'Validasi gagal');
             }
 
             $login = $credentials['login'];
@@ -43,7 +43,7 @@ class AuthService extends BaseService
             $user = User::where($field, $login)->first();
 
             if (!$user) {
-                return $this->error('User tidak ditemukan', null, 404);
+                return $this->notFoundError('User tidak ditemukan');
             }
 
             if (!$user->is_active) {
@@ -62,9 +62,9 @@ class AuthService extends BaseService
             ], 'Login berhasil', 200);
 
         } catch (JWTException $e) {
-            return $this->error('Tidak dapat membuat token', $e->getMessage(), 500);
+            return $this->error('Tidak dapat membuat token', null, 500);
         } catch (\Exception $e) {
-            return $this->error('Terjadi kesalahan sistem', $e->getMessage(), 500);
+            return $this->serverError('Terjadi kesalahan sistem', $e);
         }
     }
 
@@ -72,9 +72,11 @@ class AuthService extends BaseService
     {
         try {
             JWTAuth::invalidate(JWTAuth::getToken());
-            return $this->success(null, 'User logged out successfully', 200);
+            return $this->success(null, 'Logout berhasil', 200);
         } catch (JWTException $e) {
-            return $this->error('Failed to logout, token invalid', $e->getMessage(), 500);
+            return $this->error('Gagal logout, token tidak valid', null, 500);
+        } catch (\Exception $e) {
+            return $this->serverError('Gagal logout', $e);
         }
     }
 
@@ -82,9 +84,11 @@ class AuthService extends BaseService
     {
         try {
             $newToken = JWTAuth::refresh(JWTAuth::getToken());
-            return $this->success($newToken, 'Token refreshed', 200);
+            return $this->success($newToken, 'Token berhasil direfresh', 200);
         } catch (JWTException $e) {
-            return $this->error('Failed to refresh token', $e->getMessage(), 401);
+            return $this->error('Gagal refresh token', null, 401);
+        } catch (\Exception $e) {
+            return $this->serverError('Gagal refresh token', $e);
         }
     }
 
@@ -92,9 +96,16 @@ class AuthService extends BaseService
     {
         try {
             $user = JWTAuth::parseToken()->authenticate();
-            return $this->success($user, 'User profile fetched', 200);
+
+            if (!$user) {
+                return $this->notFoundError('User tidak ditemukan');
+            }
+
+            return $this->success($user, 'Data user berhasil diambil', 200);
         } catch (JWTException $e) {
-            return $this->error('Token tidak valid atau expired', $e->getMessage(), 401);
+            return $this->error('Token tidak valid atau expired', null, 401);
+        } catch (\Exception $e) {
+            return $this->serverError('Gagal mengambil data user', $e);
         }
     }
 }

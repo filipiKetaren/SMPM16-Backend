@@ -28,7 +28,7 @@ class ParentAuthService extends BaseService
             ]);
 
             if ($validator->fails()) {
-                return $this->error('Validasi gagal', $validator->errors(), 422);
+                return $this->validationError($validator->errors()->toArray(), 'Validasi gagal');
             }
 
             $nis = $credentials['nis'];
@@ -71,10 +71,10 @@ class ParentAuthService extends BaseService
 
         } catch (JWTException $e) {
             Log::error('JWT Exception in ParentAuthService login:', ['error' => $e->getMessage()]);
-            return $this->error('Tidak dapat membuat token', $e->getMessage(), 500);
+            return $this->error('Tidak dapat membuat token', null, 500);
         } catch (\Exception $e) {
             Log::error('General Exception in ParentAuthService login:', ['error' => $e->getMessage()]);
-            return $this->error('Terjadi kesalahan sistem: ' . $e->getMessage(), null, 500);
+            return $this->serverError('Terjadi kesalahan sistem', $e);
         }
     }
 
@@ -91,7 +91,7 @@ class ParentAuthService extends BaseService
             }
         } catch (\Exception $e) {
             Log::error('Exception in ParentAuthService logout:', ['error' => $e->getMessage()]);
-            return $this->error('Gagal logout: ' . $e->getMessage(), null, 500);
+            return $this->serverError('Gagal logout', $e);
         }
     }
 
@@ -102,13 +102,13 @@ class ParentAuthService extends BaseService
             $newToken = ParentJwtService::refreshToken();
 
             if ($newToken) {
-                return $this->success($newToken, 'Token refreshed', 200);
+                return $this->success($newToken, 'Token berhasil direfresh', 200);
             } else {
-                return $this->error('Failed to refresh token', null, 401);
+                return $this->error('Gagal refresh token', null, 401);
             }
         } catch (\Exception $e) {
             Log::error('Exception in ParentAuthService refreshToken:', ['error' => $e->getMessage()]);
-            return $this->error('Failed to refresh token: ' . $e->getMessage(), null, 401);
+            return $this->serverError('Gagal refresh token', $e);
         }
     }
 
@@ -120,7 +120,7 @@ class ParentAuthService extends BaseService
 
             if (!$parent) {
                 Log::warning('ParentAuthService - No parent attached to request');
-                return $this->error('Parent tidak ditemukan', null, 404);
+                return $this->notFoundError('Parent tidak ditemukan');
             }
 
             Log::info('ParentAuthService - Parent retrieved from request:', [
@@ -137,7 +137,7 @@ class ParentAuthService extends BaseService
 
         } catch (\Exception $e) {
             Log::error('Exception in ParentAuthService getAuthenticatedParent:', ['error' => $e->getMessage()]);
-            return $this->error('Terjadi kesalahan: ' . $e->getMessage(), null, 500);
+            return $this->serverError('Gagal mengambil data orang tua', $e);
         }
     }
 }

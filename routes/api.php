@@ -6,6 +6,9 @@ use App\Http\Controllers\Auth\ParentAuthController;
 use App\Http\Controllers\Dashboard\FinanceDashboardController;
 use App\Http\Controllers\Finance\SppController;
 use App\Http\Controllers\Finance\SavingsController;
+use App\Http\Controllers\Finance\SppSettingController;
+use App\Http\Controllers\AcademicYearController;
+use App\Http\Controllers\Parent\ParentFinanceController;
 
 Route::prefix('auth')->name('auth.')->group(function () {
     Route::post('login', [AuthController::class, 'login'])->name('login');
@@ -45,6 +48,16 @@ Route::middleware(['jwt', 'finance_admin'])->prefix('finance')->group(function (
         Route::get('/payments/{id}', [SppController::class, 'getPaymentDetail']);
         Route::put('/payments/{id}', [SppController::class, 'updatePayment']);
         Route::delete('/payments/{id}', [SppController::class, 'deletePayment']);
+
+         Route::prefix('spp-settings')->group(function () {
+            Route::get('/', [SppSettingController::class, 'index']);
+            Route::post('/', [SppSettingController::class, 'store']);
+            Route::get('/active', [SppSettingController::class, 'getActiveSettings']);
+            Route::get('/academic-year/{academicYearId}', [SppSettingController::class, 'getByAcademicYear']);
+            Route::get('/{id}', [SppSettingController::class, 'show']);
+            Route::put('/{id}', [SppSettingController::class, 'update']);
+            Route::delete('/{id}', [SppSettingController::class, 'destroy']);
+        });
     });
 
     // Tabungan routes
@@ -59,6 +72,15 @@ Route::middleware(['jwt', 'finance_admin'])->prefix('finance')->group(function (
     });
 });
 
+Route::middleware(['jwt', 'finance_admin'])->prefix('academic-years')->group(function () {
+        Route::get('/', [AcademicYearController::class, 'index']);
+        Route::post('/', [AcademicYearController::class, 'store']);
+        Route::get('/active', [AcademicYearController::class, 'getActiveAcademicYear']);
+        Route::get('/{id}', [AcademicYearController::class, 'show']);
+        Route::put('/{id}', [AcademicYearController::class, 'update']);
+        Route::delete('/{id}', [AcademicYearController::class, 'destroy']);
+    });
+
 // Route untuk super admin (bisa ditambah later)
 Route::middleware(['jwt'])->prefix('admin')->group(function () {
     // Route super admin nanti...
@@ -72,5 +94,10 @@ Route::middleware(['parent_auth'])->prefix('parent')->group(function () {
             'status' => 'success',
             'message' => 'Parent dashboard'
         ]);
+    });
+
+    Route::prefix('finance')->group(function () {
+        Route::get('/history', [ParentFinanceController::class, 'getFinanceHistory']);
+        Route::get('/students/{studentId}/detail', [ParentFinanceController::class, 'getStudentFinanceDetail']);
     });
 });

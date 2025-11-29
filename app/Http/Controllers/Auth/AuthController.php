@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-use App\Http\Requests\AdminRegisterRequest;
 use App\Http\Resources\Auth\LoginResource;
 use App\Http\Resources\Auth\RegisterResource;
 use App\Http\Resources\Auth\UserResource;
@@ -36,43 +35,15 @@ class AuthController extends Controller
             $currentUser = JWTAuth::parseToken()->authenticate();
 
             if (!$currentUser || !$currentUser->isSuperAdmin()) {
-                return response()->json([
+                $result = [
                     'status' => 'error',
                     'message' => 'Hanya Super Admin yang dapat mendaftarkan admin baru.',
                     'code' => 403
-                ], 403);
+                ];
+                return response()->json($result, $result['code']);
             }
 
-            // 2. Manual Validation
-            $validator = validator($request->all(), [
-                'username' => 'required|string|max:50|unique:users',
-                'email' => 'required|email|unique:users',
-                'password' => 'required|string|min:6|confirmed',
-                'full_name' => 'required|string|max:100',
-                'role' => 'required|in:super_admin,admin_attendance,admin_finance',
-                'phone' => 'nullable|string|max:20',
-            ], [
-                'username.required' => 'Username wajib diisi',
-                'username.unique' => 'Username sudah digunakan',
-                'email.required' => 'Email wajib diisi',
-                'email.unique' => 'Email sudah terdaftar',
-                'password.required' => 'Password wajib diisi',
-                'password.min' => 'Password minimal 6 karakter',
-                'full_name.required' => 'Nama lengkap wajib diisi',
-                'role.required' => 'Role wajib dipilih',
-                'role.in' => 'Role tidak valid',
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Validasi gagal',
-                    'errors' => $validator->errors(),
-                    'code' => 422
-                ], 422);
-            }
-
-            // 3. Call Service
+            // 2. Call Service (validasi akan ditangani di service)
             $result = $this->userService->createAdmin($request->all());
 
             if ($result['status'] === 'error') {
@@ -86,17 +57,19 @@ class AuthController extends Controller
             ], $result['code']);
 
         } catch (JWTException $e) {
-            return response()->json([
+            $result = [
                 'status' => 'error',
                 'message' => 'Token tidak valid',
                 'code' => 401
-            ], 401);
+            ];
+            return response()->json($result, 401);
         } catch (\Exception $e) {
-            return response()->json([
+            $result = [
                 'status' => 'error',
-                'message' => 'Terjadi kesalahan sistem: ' . $e->getMessage(),
+                'message' => 'Terjadi kesalahan sistem',
                 'code' => 500
-            ], 500);
+            ];
+            return response()->json($result, 500);
         }
     }
 

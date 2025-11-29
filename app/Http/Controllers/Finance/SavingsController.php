@@ -8,7 +8,6 @@ use App\Http\Resources\Finance\Savings\StudentSavingsResource;
 use App\Services\Finance\SavingsService;
 use Illuminate\Http\Request;
 use Tymon\JWTAuth\Facades\JWTAuth;
-use Illuminate\Support\Facades\Log;
 
 class SavingsController extends Controller
 {
@@ -16,71 +15,7 @@ class SavingsController extends Controller
 
     public function getAllStudentsWithSavings(Request $request)
     {
-        try {
-            $result = $this->savingsService->getAllStudentsWithSavings();
-
-            if ($result['status'] === 'error') {
-                return response()->json($result, $result['code']);
-            }
-
-            return response()->json([
-                'status' => 'success',
-                'message' => $result['message'],
-                'data' => StudentSavingsResource::collection($result['data'])
-            ], $result['code']);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Terjadi kesalahan server',
-                'errors' => null,
-                'code' => 500
-            ], 500);
-        }
-    }
-
-    public function getStudentSavings($studentId)
-    {
-        try {
-            // Validasi studentId
-            if (!is_numeric($studentId) || $studentId <= 0) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'ID siswa tidak valid',
-                    'errors' => null,
-                    'code' => 422
-                ], 422);
-            }
-
-            $result = $this->savingsService->getStudentSavings((int) $studentId);
-
-            if ($result['status'] === 'error') {
-                return response()->json($result, $result['code']);
-            }
-
-            return response()->json([
-                'status' => 'success',
-                'message' => $result['message'],
-                'data' => new StudentSavingsResource($result['data'])
-            ], $result['code']);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Terjadi kesalahan server',
-                'errors' => null,
-                'code' => 500
-            ], 500);
-        }
-    }
-
-    public function processTransaction(Request $request)
-{
-    try {
-        $user = JWTAuth::parseToken()->authenticate();
-
-
-        $result = $this->savingsService->processTransaction($request->all(), $user->id);
+        $result = $this->savingsService->getAllStudentsWithSavings();
 
         if ($result['status'] === 'error') {
             return response()->json($result, $result['code']);
@@ -89,28 +24,75 @@ class SavingsController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => $result['message'],
-            'data' => new SavingsTransactionResource($result['data'])
+            'data' => StudentSavingsResource::collection($result['data'])
         ], $result['code']);
+    }
 
-    } catch (\Exception $e) {
-       return response()->json([
-            'message' => $e->getMessage(),
-            'trace' => $e->getTraceAsString(),
-            'request' => $request->all()
-        ]);
+    public function getStudentSavings($studentId)
+    {
+        // Validasi studentId
+        if (!is_numeric($studentId) || $studentId <= 0) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'ID siswa tidak valid',
+                'errors' => ['student_id' => ['ID siswa harus berupa angka positif']],
+                'code' => 422
+            ], 422);
+        }
+
+        $result = $this->savingsService->getStudentSavings((int) $studentId);
+
+        if ($result['status'] === 'error') {
+            return response()->json($result, $result['code']);
+        }
 
         return response()->json([
-            'status' => 'error',
-            'message' => 'Terjadi kesalahan server: ' . $e->getMessage(),
-            'errors' => null,
-            'code' => 500
-        ], 500);
+            'status' => 'success',
+            'message' => $result['message'],
+            'data' => new StudentSavingsResource($result['data'])
+        ], $result['code']);
     }
-}
+
+    public function processTransaction(Request $request)
+    {
+        try {
+            $user = JWTAuth::parseToken()->authenticate();
+
+            $result = $this->savingsService->processTransaction($request->all(), $user->id);
+
+            if ($result['status'] === 'error') {
+                return response()->json($result, $result['code']);
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => $result['message'],
+                'data' => new SavingsTransactionResource($result['data'])
+            ], $result['code']);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Terjadi kesalahan server',
+                'errors' => null,
+                'code' => 500
+            ], 500);
+        }
+    }
 
     public function getTransactionDetail($transactionId)
     {
-        $result = $this->savingsService->getTransactionDetail($transactionId);
+        // Validasi transactionId
+        if (!is_numeric($transactionId) || $transactionId <= 0) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'ID transaksi tidak valid',
+                'errors' => ['transaction_id' => ['ID transaksi harus berupa angka positif']],
+                'code' => 422
+            ], 422);
+        }
+
+        $result = $this->savingsService->getTransactionDetail((int) $transactionId);
 
         if ($result['status'] === 'error') {
             return response()->json($result, $result['code']);
@@ -125,23 +107,53 @@ class SavingsController extends Controller
 
     public function updateTransaction($transactionId, Request $request)
     {
-        $user = JWTAuth::parseToken()->authenticate();
-        $result = $this->savingsService->updateTransaction($transactionId, $request->all(), $user->id);
+        try {
+            // Validasi transactionId
+            if (!is_numeric($transactionId) || $transactionId <= 0) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'ID transaksi tidak valid',
+                    'errors' => ['transaction_id' => ['ID transaksi harus berupa angka positif']],
+                    'code' => 422
+                ], 422);
+            }
 
-        if ($result['status'] === 'error') {
-            return response()->json($result, $result['code']);
+            $user = JWTAuth::parseToken()->authenticate();
+            $result = $this->savingsService->updateTransaction((int) $transactionId, $request->all(), $user->id);
+
+            if ($result['status'] === 'error') {
+                return response()->json($result, $result['code']);
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => $result['message'],
+                'data' => new SavingsTransactionResource($result['data'])
+            ], $result['code']);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Terjadi kesalahan server',
+                'errors' => null,
+                'code' => 500
+            ], 500);
         }
-
-        return response()->json([
-            'status' => 'success',
-            'message' => $result['message'],
-            'data' => new SavingsTransactionResource($result['data'])
-        ], $result['code']);
     }
 
     public function deleteTransaction($transactionId)
     {
-        $result = $this->savingsService->deleteTransaction($transactionId);
+        // Validasi transactionId
+        if (!is_numeric($transactionId) || $transactionId <= 0) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'ID transaksi tidak valid',
+                'errors' => ['transaction_id' => ['ID transaksi harus berupa angka positif']],
+                'code' => 422
+            ], 422);
+        }
+
+        $result = $this->savingsService->deleteTransaction((int) $transactionId);
 
         if ($result['status'] === 'error') {
             return response()->json($result, $result['code']);

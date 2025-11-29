@@ -26,7 +26,7 @@ class UserService extends BaseService
             ]);
 
             if ($validator->fails()) {
-                throw new ValidationException($validator);
+                return $this->validationError($validator->errors()->toArray(), 'Validasi gagal');
             }
 
             // Create user
@@ -49,9 +49,9 @@ class UserService extends BaseService
             ], 'Admin berhasil didaftarkan', 201);
 
         } catch (ValidationException $e) {
-            return $this->error('Validasi gagal', $e->errors(), 422);
+            return $this->validationError($e->errors(), 'Validasi gagal');
         } catch (\Exception $e) {
-            return $this->error('Gagal membuat admin', $e->getMessage(), 500);
+            return $this->serverError('Gagal membuat admin', $e);
         }
     }
 
@@ -61,7 +61,7 @@ class UserService extends BaseService
             $user = User::find($userId);
 
             if (!$user) {
-                return $this->error('User tidak ditemukan', null, 404);
+                return $this->notFoundError('User tidak ditemukan');
             }
 
             $validator = Validator::make($data, [
@@ -71,7 +71,7 @@ class UserService extends BaseService
             ]);
 
             if ($validator->fails()) {
-                return $this->error('Validasi gagal', $validator->errors(), 422);
+                return $this->validationError($validator->errors()->toArray(), 'Validasi gagal');
             }
 
             $user->update($data);
@@ -79,7 +79,7 @@ class UserService extends BaseService
             return $this->success($user, 'Profile berhasil diupdate', 200);
 
         } catch (\Exception $e) {
-            return $this->error('Gagal update profile', $e->getMessage(), 500);
+            return $this->serverError('Gagal update profile', $e);
         }
     }
 
@@ -89,7 +89,7 @@ class UserService extends BaseService
             $user = User::find($userId);
 
             if (!$user) {
-                return $this->error('User tidak ditemukan', null, 404);
+                return $this->notFoundError('User tidak ditemukan');
             }
 
             $user->update(['is_active' => false]);
@@ -97,7 +97,7 @@ class UserService extends BaseService
             return $this->success(null, 'User berhasil dinonaktifkan', 200);
 
         } catch (\Exception $e) {
-            return $this->error('Gagal menonaktifkan user', $e->getMessage(), 500);
+            return $this->serverError('Gagal menonaktifkan user', $e);
         }
     }
 }

@@ -16,6 +16,10 @@ use App\Repositories\Interfaces\SavingsRepositoryInterface;
 use App\Repositories\Eloquent\SavingsRepository;
 use App\Repositories\Interfaces\ParentRepositoryInterface;
 use App\Repositories\Eloquent\ParentRepository;
+use App\Repositories\Interfaces\AcademicYearRepositoryInterface;
+use App\Repositories\Eloquent\AcademicYearRepository;
+use App\Repositories\Interfaces\ParentFinanceRepositoryInterface;
+use App\Repositories\Eloquent\ParentFinanceRepository;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -27,6 +31,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(DashboardRepositoryInterface::class, DashboardRepository::class);
         $this->app->bind(SavingsRepositoryInterface::class, SavingsRepository::class);
         $this->app->bind(ParentRepositoryInterface::class, ParentRepository::class);
+        $this->app->bind(AcademicYearRepositoryInterface::class, AcademicYearRepository::class);
+        $this->app->bind(ParentFinanceRepositoryInterface::class, ParentFinanceRepository::class);
     }
 
     public function boot(): void

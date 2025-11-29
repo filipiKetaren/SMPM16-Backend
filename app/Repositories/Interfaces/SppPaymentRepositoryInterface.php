@@ -16,4 +16,7 @@ interface SppPaymentRepositoryInterface
     public function deletePayment(int $paymentId): bool;
     public function findPayment(int $paymentId);
     public function getPaymentByReceiptNumber(string $receiptNumber);
+    public function getLastPaymentByStudent(int $studentId): ?SppPayment;
+    public function getStudentPaymentCount(int $studentId): int;
+    public function getLatestPaymentByStudent(int $studentId): ?SppPayment;
 }

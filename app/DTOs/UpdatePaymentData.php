@@ -18,14 +18,26 @@ class UpdatePaymentData
     public static function fromRequest(array $data): self
     {
         return new self(
-            paymentDate: $data['payment_date'],
-            subtotal: $data['subtotal'],
-            totalAmount: $data['total_amount'],
-            paymentMethod: $data['payment_method'],
-            paymentDetails: $data['payment_details'],
-            discount: $data['discount'] ?? 0,
-            lateFee: $data['late_fee'] ?? 0,
-            notes: $data['notes'] ?? null
+            paymentDate: (string) self::getSafeValue($data, 'payment_date', ''),
+            subtotal: (float) self::getSafeValue($data, 'subtotal', 0),
+            totalAmount: (float) self::getSafeValue($data, 'total_amount', 0),
+            paymentMethod: (string) self::getSafeValue($data, 'payment_method', ''),
+            paymentDetails: (array) self::getSafeValue($data, 'payment_details', []),
+            discount: (float) self::getSafeValue($data, 'discount', 0),
+            lateFee: (float) self::getSafeValue($data, 'late_fee', 0),
+            notes: self::getSafeValue($data, 'notes')
         );
+    }
+
+         private static function getSafeValue(array $data, string $key, $default = null)
+    {
+        $value = $data[$key] ?? $default;
+
+        // Handle empty strings untuk numerik fields
+        if (($key === 'subtotal' || $key === 'total_amount' || $key === 'discount' || $key === 'late_fee') && $value === '') {
+            return 0;
+        }
+
+        return $value;
     }
 }
