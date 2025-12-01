@@ -86,6 +86,16 @@ Route::middleware(['jwt'])->prefix('admin')->group(function () {
     // Route super admin nanti...
 });
 
+// Tambahkan di atas semua route
+Route::get('/test-csrf', function() {
+    return response()->json([
+        'csrf_token' => csrf_token(),
+        'session_id' => session()->getId(),
+        'has_session' => session()->isStarted(),
+        'middleware' => request()->route()->gatherMiddleware()
+    ]);
+});
+
 // Route untuk orang tua (nanti akan ditambah untuk monitoring)
 Route::middleware(['parent_auth'])->prefix('parent')->group(function () {
     // Route untuk monitoring presensi, SPP, tabungan akan ditambah nanti
