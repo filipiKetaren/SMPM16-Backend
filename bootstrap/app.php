@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Middleware untuk API
         $middleware->api(prepend: [
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+            \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ]);
 
         // Alias middleware custom
