@@ -5,7 +5,7 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['http://localhost:3000'], // Domain Next.js Anda
+    'allowed_origins' => ['http://localhost:3000', 'https://adminsmpmuhammadiyah16.vercel.app'],
 
     'allowed_origins_patterns' => [],
 

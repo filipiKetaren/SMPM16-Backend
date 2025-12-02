@@ -96,6 +96,16 @@ Route::get('/test-csrf', function() {
     ]);
 });
 
+Route::get('/debug-middleware', function() {
+    return response()->json([
+        'current_route_middleware' => request()->route()->gatherMiddleware(),
+        'session_status' => session_status(),
+        'session_id' => session()->getId(),
+        'csrf_token_exists' => csrf_token() ? 'yes' : 'no',
+        'is_stateful' => request()->hasSession(),
+    ]);
+});
+
 // Route untuk orang tua (nanti akan ditambah untuk monitoring)
 Route::middleware(['parent_auth'])->prefix('parent')->group(function () {
     // Route untuk monitoring presensi, SPP, tabungan akan ditambah nanti
