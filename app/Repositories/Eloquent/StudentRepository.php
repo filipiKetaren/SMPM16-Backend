@@ -26,9 +26,15 @@ class StudentRepository implements StudentRepositoryInterface
         return Student::with(['class', 'sppPayments.paymentDetails'])->find($id);
     }
 
-    public function findStudentWithPaymentHistory(int $id)
+   public function findStudentWithPaymentHistory(int $id)
     {
-        return Student::with(['sppPayments.paymentDetails', 'sppPayments.creator'])->find($id);
+        return Student::with([
+            'sppPayments' => function($query) {
+                $query->orderBy('payment_date', 'desc');
+            },
+            'sppPayments.paymentDetails',
+            'sppPayments.creator'
+        ])->find($id);
     }
 
     public function getStudentById(int $id)

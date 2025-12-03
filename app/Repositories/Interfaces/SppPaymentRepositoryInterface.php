@@ -19,4 +19,6 @@ interface SppPaymentRepositoryInterface
     public function getLastPaymentByStudent(int $studentId): ?SppPayment;
     public function getStudentPaymentCount(int $studentId): int;
     public function getLatestPaymentByStudent(int $studentId): ?SppPayment;
+    public function getPaymentsByStudentAndAcademicYear(int $studentId, int $academicYearId): Collection;
+    public function getStudentPaidAcademicMonthsWithYear(int $studentId, int $academicYearId): array;
 }

@@ -3,6 +3,7 @@
 namespace App\Repositories\Eloquent;
 
 use App\Models\SppPayment;
+use App\Models\AcademicYear;
 use App\Repositories\Interfaces\SppPaymentRepositoryInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +26,7 @@ class SppPaymentRepository implements SppPaymentRepositoryInterface
 
     public function getStudentPaidMonths(int $studentId, int $year): array
     {
+        // Tetap pertahankan untuk kompatibilitas
         $payments = $this->getPaymentsByStudentAndYear($studentId, $year);
 
         $paidMonths = [];
@@ -104,5 +106,44 @@ class SppPaymentRepository implements SppPaymentRepositoryInterface
             ->orderBy('created_at', 'desc')
             ->orderBy('id', 'desc')
             ->first();
+    }
+
+    public function getPaymentsByStudentAndAcademicYear(int $studentId, int $academicYearId): Collection
+    {
+        // Dapatkan tahun akademik
+        $academicYear = AcademicYear::find($academicYearId);
+        if (!$academicYear) {
+            return new Collection();
+        }
+
+        // Ambil pembayaran dalam rentang tanggal tahun akademik
+        return SppPayment::where('student_id', $studentId)
+            ->whereBetween('payment_date', [
+                $academicYear->start_date,
+                $academicYear->end_date
+            ])
+            ->with(['paymentDetails'])
+            ->get();
+    }
+
+    public function getStudentPaidAcademicMonthsWithYear(int $studentId, int $academicYearId): array
+    {
+        // Ambil pembayaran siswa dan filter yang sesuai dengan tahun akademik
+        $payments = $this->getPaymentsByStudentAndAcademicYear($studentId, $academicYearId);
+
+        $paidMonths = [];
+        foreach ($payments as $payment) {
+            foreach ($payment->paymentDetails as $detail) {
+                $paidMonths[] = [
+                    'month' => $detail->month,
+                    'year' => $detail->year,
+                    'amount' => (float) $detail->amount,
+                    'payment_date' => $payment->payment_date->format('Y-m-d'),
+                    'receipt_number' => $payment->receipt_number,
+                ];
+            }
+        }
+
+        return $paidMonths;
     }
 }

@@ -30,7 +30,9 @@ class SppController extends Controller
 
     public function getStudentPaymentHistory($studentId, Request $request)
     {
-        $year = $request->query('year', date('Y'));
+
+        $year = $request->query('year');
+
         $result = $this->sppService->getStudentPaymentHistory($studentId, $year);
 
         if ($result['status'] === 'error') {
@@ -44,10 +46,12 @@ class SppController extends Controller
         ], $result['code']);
     }
 
-    public function getStudentBills($studentId, Request $request)
+    /**
+     * Get student SPP bills with academic year logic
+     */
+    public function getStudentBills($studentId)
     {
-        $year = $request->query('year', date('Y'));
-        $result = $this->sppService->getStudentBills($studentId, $year);
+        $result = $this->sppService->generateStudentBills($studentId);
 
         if ($result['status'] === 'error') {
             return response()->json($result, $result['code']);
@@ -56,10 +60,13 @@ class SppController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => $result['message'],
-            'data' => new StudentBillsResource($result['data'])
+            'data' => $result['data']
         ], $result['code']);
     }
 
+    /**
+     * Process payment with academic year validation
+     */
     public function processPayment(Request $request)
     {
         $user = JWTAuth::parseToken()->authenticate();

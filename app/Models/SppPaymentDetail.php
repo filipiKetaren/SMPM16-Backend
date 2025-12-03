@@ -15,10 +15,12 @@ class SppPaymentDetail extends Model
         'month',
         'year',
         'amount',
+        'is_paid',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'is_paid' => 'boolean',
     ];
 
     public function payment()
