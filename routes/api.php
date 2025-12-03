@@ -7,6 +7,7 @@ use App\Http\Controllers\Dashboard\FinanceDashboardController;
 use App\Http\Controllers\Finance\SppController;
 use App\Http\Controllers\Finance\SavingsController;
 use App\Http\Controllers\Finance\SppSettingController;
+use App\Http\Controllers\Finance\FinanceReportController;
 use App\Http\Controllers\AcademicYearController;
 use App\Http\Controllers\Parent\ParentFinanceController;
 
@@ -70,6 +71,20 @@ Route::middleware(['jwt', 'finance_admin'])->prefix('finance')->group(function (
         Route::put('/transactions/{id}', [SavingsController::class, 'updateTransaction']);
         Route::delete('/transactions/{id}', [SavingsController::class, 'deleteTransaction']);
     });
+
+    Route::prefix('reports')->group(function () {
+        // Versi lama (generate file) - opsional dipertahankan
+        Route::get('/spp', [FinanceReportController::class, 'sppReport']);
+        Route::get('/savings', [FinanceReportController::class, 'savingsReport']);
+        Route::get('/financial-summary', [FinanceReportController::class, 'financialSummary']);
+
+        // Versi baru (hanya data untuk frontend)
+        Route::get('/spp/data', [FinanceReportController::class, 'getSppReportData']);
+        Route::get('/savings/data', [FinanceReportController::class, 'getSavingsReportData']);
+        Route::get('/financial-summary/data', [FinanceReportController::class, 'getFinancialSummaryData']);
+
+        Route::get('/history', [FinanceReportController::class, 'reportHistory']);
+    });
 });
 
 Route::middleware(['jwt', 'finance_admin'])->prefix('academic-years')->group(function () {
@@ -86,25 +101,25 @@ Route::middleware(['jwt'])->prefix('admin')->group(function () {
     // Route super admin nanti...
 });
 
-// Tambahkan di atas semua route
-Route::get('/test-csrf', function() {
-    return response()->json([
-        'csrf_token' => csrf_token(),
-        'session_id' => session()->getId(),
-        'has_session' => session()->isStarted(),
-        'middleware' => request()->route()->gatherMiddleware()
-    ]);
-});
+// // Tambahkan di atas semua route
+// Route::get('/test-csrf', function() {
+//     return response()->json([
+//         'csrf_token' => csrf_token(),
+//         'session_id' => session()->getId(),
+//         'has_session' => session()->isStarted(),
+//         'middleware' => request()->route()->gatherMiddleware()
+//     ]);
+// });
 
-Route::get('/debug-middleware', function() {
-    return response()->json([
-        'current_route_middleware' => request()->route()->gatherMiddleware(),
-        'session_status' => session_status(),
-        'session_id' => session()->getId(),
-        'csrf_token_exists' => csrf_token() ? 'yes' : 'no',
-        'is_stateful' => request()->hasSession(),
-    ]);
-});
+// Route::get('/debug-middleware', function() {
+//     return response()->json([
+//         'current_route_middleware' => request()->route()->gatherMiddleware(),
+//         'session_status' => session_status(),
+//         'session_id' => session()->getId(),
+//         'csrf_token_exists' => csrf_token() ? 'yes' : 'no',
+//         'is_stateful' => request()->hasSession(),
+//     ]);
+// });
 
 // Route untuk orang tua (nanti akan ditambah untuk monitoring)
 Route::middleware(['parent_auth'])->prefix('parent')->group(function () {

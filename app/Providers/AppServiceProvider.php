@@ -20,7 +20,8 @@ use App\Repositories\Interfaces\AcademicYearRepositoryInterface;
 use App\Repositories\Eloquent\AcademicYearRepository;
 use App\Repositories\Interfaces\ParentFinanceRepositoryInterface;
 use App\Repositories\Eloquent\ParentFinanceRepository;
-
+use App\Repositories\Interfaces\FinanceReportRepositoryInterface;
+use App\Repositories\Eloquent\FinanceReportRepository;
 class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
@@ -33,6 +34,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(ParentRepositoryInterface::class, ParentRepository::class);
         $this->app->bind(AcademicYearRepositoryInterface::class, AcademicYearRepository::class);
         $this->app->bind(ParentFinanceRepositoryInterface::class, ParentFinanceRepository::class);
+        $this->app->bind(FinanceReportRepositoryInterface::class, FinanceReportRepository::class);
     }
 
     public function boot(): void
