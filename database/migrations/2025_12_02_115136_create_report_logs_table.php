@@ -18,9 +18,6 @@ return new class extends Migration
             $table->integer('year');
             $table->integer('month')->nullable();
             $table->foreignId('academic_year_id')->nullable()->constrained()->onDelete('set null');
-            $table->string('file_path');
-            $table->string('file_name');
-            $table->integer('download_count')->default(0);
             $table->timestamps();
 
             $table->index(['user_id', 'report_type']);

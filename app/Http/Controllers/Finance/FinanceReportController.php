@@ -4,14 +4,19 @@
 namespace App\Http\Controllers\Finance;
 
 use App\Http\Controllers\Controller;
-use App\Services\Finance\FinanceReportService;
 use Illuminate\Http\Request;
 use Tymon\JWTAuth\Facades\JWTAuth;
 use Illuminate\Support\Facades\Log;
+use App\Repositories\Eloquent\FinanceReportRepository;
 
 class FinanceReportController extends Controller
 {
-    public function __construct(private FinanceReportService $reportService) {}
+    private $reportRepository;
+
+    public function __construct()
+    {
+        $this->reportRepository = new FinanceReportRepository();
+    }
 
     /**
      * Get SPP Report Data (hanya data, tanpa file)
@@ -28,9 +33,8 @@ class FinanceReportController extends Controller
                 return response()->json($validationResult, 400);
             }
 
-            // Dapatkan data dari repository langsung
-            $reportData = app(\App\Repositories\Eloquent\FinanceReportRepository::class)
-                ->getSppReportData($filters);
+            // Dapatkan data dari repository
+            $reportData = $this->reportRepository->getSppReportData($filters);
 
             // Simpan log bahwa data laporan diakses
             $this->saveAccessLog([
@@ -50,10 +54,12 @@ class FinanceReportController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Error getSppReportData: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Gagal mengambil data laporan SPP',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
@@ -73,9 +79,8 @@ class FinanceReportController extends Controller
                 return response()->json($validationResult, 400);
             }
 
-            // Dapatkan data dari repository langsung
-            $reportData = app(\App\Repositories\Eloquent\FinanceReportRepository::class)
-                ->getSavingsReportData($filters);
+            // Dapatkan data dari repository
+            $reportData = $this->reportRepository->getSavingsReportData($filters);
 
             // Simpan log bahwa data laporan diakses
             $this->saveAccessLog([
@@ -95,10 +100,12 @@ class FinanceReportController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Error getSavingsReportData: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Gagal mengambil data laporan Tabungan',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
@@ -119,9 +126,8 @@ class FinanceReportController extends Controller
             }
 
             // Dapatkan data SPP dan Tabungan
-            $repo = app(\App\Repositories\Eloquent\FinanceReportRepository::class);
-            $sppData = $repo->getSppReportData($filters);
-            $savingsData = $repo->getSavingsReportData($filters);
+            $sppData = $this->reportRepository->getSppReportData($filters);
+            $savingsData = $this->reportRepository->getSavingsReportData($filters);
 
             // Gabungkan data untuk summary
             $summaryData = [
@@ -152,10 +158,43 @@ class FinanceReportController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Error getFinancialSummaryData: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Gagal mengambil data ringkasan keuangan',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
+
+    /**
+     * Get report history/logs
+     */
+    public function reportHistory(Request $request)
+    {
+        $user = JWTAuth::parseToken()->authenticate();
+        $filters = $request->all();
+
+        try {
+            // Hanya ambil history user yang bersangkutan
+            $filters['user_id'] = $user->id;
+
+            $history = $this->reportRepository->getReportHistory($filters);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Riwayat laporan berhasil diambil',
+                'data' => $history
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Error reportHistory: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal mengambil riwayat laporan',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
@@ -244,26 +283,5 @@ class FinanceReportController extends Controller
             // Log error tapi tidak mengganggu response utama
             Log::error('Gagal menyimpan log akses: ' . $e->getMessage());
         }
-    }
-
-    /**
-     * Get report history
-     */
-    public function reportHistory(Request $request)
-    {
-        $user = JWTAuth::parseToken()->authenticate();
-        $filters = $request->all();
-
-        $result = $this->reportService->getReportHistory($filters, $user->id);
-
-        if ($result['status'] === 'error') {
-            return response()->json($result, $result['code']);
-        }
-
-        return response()->json([
-            'status' => 'success',
-            'message' => $result['message'],
-            'data' => $result['data']
-        ], $result['code']);
     }
 }

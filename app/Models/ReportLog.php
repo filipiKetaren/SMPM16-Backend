@@ -18,13 +18,9 @@ class ReportLog extends Model
         'year',
         'month',
         'academic_year_id',
-        'file_path',
-        'file_name',
-        'download_count'
     ];
 
     protected $casts = [
-        'download_count' => 'integer',
         'month' => 'integer',
         'year' => 'integer',
     ];

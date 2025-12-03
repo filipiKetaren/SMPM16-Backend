@@ -23,7 +23,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'jwt' => JwtMiddleware::class,
             'parent_auth' => \App\Http\Middleware\ParentAuthMiddleware::class,
             'finance_admin' => \App\Http\Middleware\FinanceAdminMiddleware::class,
-            'PDF' => Barryvdh\DomPDF\Facade\Pdf::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

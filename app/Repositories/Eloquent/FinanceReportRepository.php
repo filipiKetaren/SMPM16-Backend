@@ -8,6 +8,7 @@ use App\Models\SppPaymentDetail;
 use App\Models\SavingsTransaction;
 use App\Models\AcademicYear;
 use App\Models\ReportLog;
+use App\Models\ReportAccessLog;
 use App\Repositories\Interfaces\FinanceReportRepositoryInterface;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -174,8 +175,8 @@ class FinanceReportRepository implements FinanceReportRepositoryInterface
                 'current_balance' => $currentBalance,
                 'net_flow' => $deposits->sum('amount') - $withdrawals->sum('amount'),
             ],
-            'deposits_by_month' => $this->getMonthlyData($deposits, $year, $periodType),
-            'withdrawals_by_month' => $this->getMonthlyData($withdrawals, $year, $periodType),
+            'deposits_by_month' => $this->getMonthlyData($deposits, $year, $periodType, $month),
+            'withdrawals_by_month' => $this->getMonthlyData($withdrawals, $year, $periodType, $month),
             'student_summary' => $studentSummary,
             'transactions' => $transactions->map(function ($transaction) {
                 return [
@@ -199,10 +200,8 @@ class FinanceReportRepository implements FinanceReportRepositoryInterface
     /**
      * Get monthly data untuk chart
      */
-    private function getMonthlyData($transactions, $year, $periodType): array
+    private function getMonthlyData($transactions, $year, $periodType, $month = null): array
     {
-        // Gunakan $month dari parameter atau default
-        $month = request('month', date('m'));
         $month = (int)$month; // Pastikan integer
 
         if ($periodType === 'monthly') {
@@ -226,7 +225,7 @@ class FinanceReportRepository implements FinanceReportRepositoryInterface
             for ($currentMonth = 1; $currentMonth <= 12; $currentMonth++) {
                 $monthlyTotal = $transactions->filter(function ($transaction) use ($year, $currentMonth) {
                     return $transaction->transaction_date->year == $year &&
-                        $transaction->transaction_date->month == $currentMonth;
+                           $transaction->transaction_date->month == $currentMonth;
                 })->sum('amount');
 
                 $data[] = [
@@ -283,20 +282,10 @@ class FinanceReportRepository implements FinanceReportRepositoryInterface
     {
         $date = Carbon::now()->subDays($days);
 
-        // Hapus file fisik
-        $files = glob(storage_path("app/reports/*"));
-        $deletedCount = 0;
-
-        foreach ($files as $file) {
-            if (filemtime($file) < $date->timestamp) {
-                unlink($file);
-                $deletedCount++;
-            }
-        }
-
-        // Hapus log lama
+        // Hanya hapus log lama, tidak ada file yang dihapus
         $logCount = ReportLog::where('created_at', '<', $date)->delete();
+        $accessLogCount = ReportAccessLog::where('created_at', '<', $date)->delete();
 
-        return $deletedCount + $logCount;
+        return $logCount + $accessLogCount;
     }
 }
