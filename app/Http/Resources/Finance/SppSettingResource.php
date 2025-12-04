@@ -4,9 +4,12 @@ namespace App\Http\Resources\Finance;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Http\Resources\Traits\HasCustomTimestamps;
 
 class SppSettingResource extends JsonResource
 {
+    use HasCustomTimestamps; // Gunakan trait
+
     public function toArray(Request $request): array
     {
         return [
@@ -20,8 +23,8 @@ class SppSettingResource extends JsonResource
             'late_fee_type' => $this->late_fee_type,
             'late_fee_amount' => $this->late_fee_amount ? (float) $this->late_fee_amount : null,
             'late_fee_start_day' => $this->late_fee_start_day,
-            'created_at' => $this->created_at,
-            'updated_at' => $this->updated_at,
+            'created_at' => $this->formatTimestamp($this->created_at),
+            'updated_at' => $this->formatTimestamp($this->updated_at),
         ];
     }
 }

@@ -8,13 +8,14 @@ use App\Http\Controllers\Finance\SppController;
 use App\Http\Controllers\Finance\SavingsController;
 use App\Http\Controllers\Finance\SppSettingController;
 use App\Http\Controllers\Finance\FinanceReportController;
+use App\Http\Controllers\Finance\ScholarshipController;
 use App\Http\Controllers\AcademicYearController;
 use App\Http\Controllers\Parent\ParentFinanceController;
 
 Route::prefix('auth')->name('auth.')->group(function () {
     Route::post('login', [AuthController::class, 'login'])->name('login');
 
-    Route::middleware('jwt')->group(function () {
+    Route::middleware('jwt', 'timezone')->group(function () {
         Route::post('logout', [AuthController::class, 'logout'])->name('logout');
         Route::get('me', [AuthController::class, 'me'])->name('me');
         Route::post('refresh', [AuthController::class, 'refresh'])->name('refresh');
@@ -26,7 +27,7 @@ Route::prefix('auth')->name('auth.')->group(function () {
 Route::prefix('auth/parent')->name('auth.parent.')->group(function () {
     Route::post('login', [ParentAuthController::class, 'login'])->name('login');
 
-    Route::middleware(['parent_auth'])->group(function () {
+    Route::middleware(['parent_auth', 'timezone'])->group(function () {
         Route::post('logout', [ParentAuthController::class, 'logout'])->name('logout');
         Route::get('me', [ParentAuthController::class, 'me'])->name('me');
         Route::post('refresh', [ParentAuthController::class, 'refresh'])->name('refresh');
@@ -34,12 +35,12 @@ Route::prefix('auth/parent')->name('auth.parent.')->group(function () {
 });
 
 // Dashboard routes
-Route::middleware(['jwt', 'finance_admin'])->prefix('dashboard')->group(function () {
+Route::middleware(['jwt', 'finance_admin', 'timezone'])->prefix('dashboard')->group(function () {
     Route::get('/finance', [FinanceDashboardController::class, 'index']);
 });
 
 // SPP Management routes
-Route::middleware(['jwt', 'finance_admin'])->prefix('finance')->group(function () {
+Route::middleware(['jwt', 'finance_admin', 'timezone'])->prefix('finance')->group(function () {
     Route::prefix('spp')->group(function () {
         Route::get('/students', [SppController::class, 'getStudentsWithBills']);
         Route::get('/students/{id}/bills', [SppController::class, 'getStudentBills']);
@@ -80,6 +81,17 @@ Route::middleware(['jwt', 'finance_admin'])->prefix('finance')->group(function (
 
         Route::get('/history', [FinanceReportController::class, 'reportHistory']);
     });
+
+    // Scholarship routes
+    Route::prefix('scholarships')->group(function () {
+        Route::get('/', [ScholarshipController::class, 'index']);
+        Route::post('/', [ScholarshipController::class, 'store']);
+        Route::get('/summary', [ScholarshipController::class, 'summary']);
+        Route::get('/student/{studentId}', [ScholarshipController::class, 'byStudent']);
+        Route::get('/{id}', [ScholarshipController::class, 'show']);
+        Route::put('/{id}', [ScholarshipController::class, 'update']);
+        Route::delete('/{id}', [ScholarshipController::class, 'destroy']);
+    });
 });
 
 Route::middleware(['jwt', 'finance_admin'])->prefix('academic-years')->group(function () {
@@ -97,7 +109,7 @@ Route::middleware(['jwt'])->prefix('admin')->group(function () {
 });
 
 // Route untuk orang tua (nanti akan ditambah untuk monitoring)
-Route::middleware(['parent_auth'])->prefix('parent')->group(function () {
+Route::middleware(['parent_auth', 'timezone'])->prefix('parent')->group(function () {
     // Route untuk monitoring presensi, SPP, tabungan akan ditambah nanti
     Route::get('/dashboard', function () {
         return response()->json([

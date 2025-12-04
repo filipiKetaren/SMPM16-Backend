@@ -50,6 +50,16 @@ class SppSettingRepository implements SppSettingRepositoryInterface
             ->get();
     }
 
+    /**
+     * Cari setting berdasarkan grade_level dan academic_year_id**
+     */
+    public function getSettingByGradeLevelAndAcademicYear(int $gradeLevel, int $academicYearId): ?SppSetting
+    {
+        return SppSetting::where('grade_level', $gradeLevel)
+            ->where('academic_year_id', $academicYearId)
+            ->first();
+    }
+
     public function createSetting(array $data): SppSetting
     {
         return SppSetting::create($data);

@@ -39,7 +39,14 @@ class StudentRepository implements StudentRepositoryInterface
 
     public function getStudentById(int $id)
     {
-        return Student::find($id);
+        return Student::with([
+            'class' => function($q) {
+                $q->select('id', 'name', 'grade_level', 'academic_year_id');
+            },
+            'class.academicYear' => function($q) {
+                $q->select('id', 'name');
+            }
+        ])->find($id);
     }
 
         public function findStudentWithClass(int $studentId)

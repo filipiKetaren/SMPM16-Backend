@@ -15,4 +15,5 @@ interface SppSettingRepositoryInterface
     public function updateSetting(int $id, array $data): bool;
     public function deleteSetting(int $id): bool;
     public function getActiveAcademicYearSettings(): Collection;
+    public function getSettingByGradeLevelAndAcademicYear(int $gradeLevel, int $academicYearId): ?SppSetting;
 }

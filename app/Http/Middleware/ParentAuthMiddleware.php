@@ -15,11 +15,6 @@ class ParentAuthMiddleware
     {
         $token = $request->bearerToken();
 
-        Log::info('ParentAuthMiddleware - Processing request:', [
-            'has_token' => !empty($token),
-            'url' => $request->url()
-        ]);
-
         if (!$token) {
             return response()->json([
                 'status' => 'error',
@@ -44,11 +39,6 @@ class ParentAuthMiddleware
                 'message' => 'Akun orang tua tidak aktif'
             ], 403);
         }
-
-        Log::info('ParentAuthMiddleware - Parent authenticated successfully:', [
-            'parent_id' => $parent->id,
-            'parent_name' => $parent->full_name
-        ]);
 
         // Attach parent ke request agar bisa digunakan di controller
         $request->merge(['parent' => $parent]);

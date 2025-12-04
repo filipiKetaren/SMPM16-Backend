@@ -63,7 +63,7 @@ class SppService extends BaseService
     }
 
     /**
-     * Generate SPP bills with academic year logic
+     * Generate SPP bills with academic year logic and scholarship
      */
     public function generateStudentBills(int $studentId)
     {
@@ -81,7 +81,7 @@ class SppService extends BaseService
             }
 
             // Dapatkan setting SPP
-            $sppSetting = $this->sppSettingRepository->getSettingByGradeLevel(
+            $sppSetting = $this->sppSettingRepository->getSettingByGradeLevelAndAcademicYear(
                 $student->class->grade_level,
                 $academicYear->id
             );
@@ -96,8 +96,10 @@ class SppService extends BaseService
             // Dapatkan bulan yang sudah dibayar
             $paidMonths = $this->getStudentPaidAcademicMonths($studentId, $academicYear->id);
 
-            // Generate tagihan
+            // Generate tagihan dengan pertimbangan beasiswa
             $bills = [];
+            $totalOriginalAmount = 0;
+            $totalDiscount = 0;
             $totalUnpaid = 0;
 
             foreach ($academicMonths as $academicMonth) {
@@ -106,12 +108,20 @@ class SppService extends BaseService
 
                 // Cek apakah bulan ini sudah dibayar
                 foreach ($paidMonths as $paid) {
-                    if ($paid['month'] == $academicMonth['month'] && $paid['year'] == $academicMonth['year']) {
+                    if ($paid['month'] == $academicMonth['month'] && $paid['year'] == $paid['year']) {
                         $isPaid = true;
                         $paymentInfo = $paid;
                         break;
                     }
                 }
+
+                // Hitung amount dengan beasiswa - PERBAIKAN DI SINI
+                $originalAmount = (float) $sppSetting->monthly_amount;
+                $scholarshipCalculation = $student->calculateScholarshipDiscountForMonth(
+                    $originalAmount,
+                    $academicMonth['year'],
+                    $academicMonth['month']
+                );
 
                 $bill = [
                     'academic_year_id' => $academicYear->id,
@@ -119,7 +129,9 @@ class SppService extends BaseService
                     'month' => $academicMonth['month'],
                     'month_name' => $academicMonth['month_name'],
                     'year' => $academicMonth['year'],
-                    'amount' => (float) $sppSetting->monthly_amount,
+                    'original_amount' => $originalAmount,
+                    'scholarship_calculation' => $scholarshipCalculation,
+                    'amount' => $scholarshipCalculation['final_amount'],
                     'due_date' => $this->calculateDueDate(
                         $academicMonth['year'],
                         $academicMonth['month'],
@@ -138,6 +150,9 @@ class SppService extends BaseService
                     ),
                     'payment_info' => $paymentInfo
                 ];
+
+                $totalOriginalAmount += $originalAmount;
+                $totalDiscount += $scholarshipCalculation['discount_amount'];
 
                 if (!$isPaid) {
                     $totalUnpaid += $bill['amount'] + $bill['late_fee_amount'];
@@ -161,6 +176,8 @@ class SppService extends BaseService
                     'full_name' => $student->full_name,
                     'class' => $student->class->name,
                     'grade_level' => $student->class->grade_level,
+                    'has_active_scholarship' => $student->hasActiveScholarship(),
+                    'active_scholarship' => $student->getActiveScholarship()
                 ],
                 'academic_year' => [
                     'id' => $academicYear->id,
@@ -182,6 +199,9 @@ class SppService extends BaseService
                     'total_months' => count($bills),
                     'paid_months' => count(array_filter($bills, fn($b) => $b['is_paid'])),
                     'unpaid_months' => count(array_filter($bills, fn($b) => !$b['is_paid'])),
+                    'total_original_amount' => $totalOriginalAmount,
+                    'total_scholarship_discount' => $totalDiscount,
+                    'total_amount_after_discount' => $totalOriginalAmount - $totalDiscount,
                     'total_unpaid' => $totalUnpaid,
                     'total_paid' => array_sum(array_column(
                         array_filter($bills, fn($b) => $b['is_paid']),
@@ -245,7 +265,7 @@ class SppService extends BaseService
         }
 
         // 3. Dapatkan setting SPP
-        $sppSetting = $this->sppSettingRepository->getSettingByGradeLevel(
+        $sppSetting = $this->sppSettingRepository->getSettingByGradeLevelAndAcademicYear(
             $student->class->grade_level,
             $academicYear->id
         );
@@ -259,6 +279,103 @@ class SppService extends BaseService
         }
 
         $monthlyAmount = $sppSetting->monthly_amount;
+
+        // ✅ VALIDASI BARU: Cek apakah siswa memiliki beasiswa FULL untuk bulan yang akan dibayar
+        $monthsWithFullScholarship = [];
+        foreach ($paymentData->paymentDetails as $detail) {
+            $scholarship = $student->getScholarshipForMonth($detail['year'], $detail['month']);
+
+            if ($scholarship && $scholarship->type === 'full') {
+                $monthsWithFullScholarship[] = [
+                    'month' => $detail['month'],
+                    'year' => $detail['year'],
+                    'month_name' => DateHelper::getMonthName($detail['month']),
+                    'scholarship' => [
+                        'name' => $scholarship->scholarship_name,
+                        'sponsor' => $scholarship->sponsor,
+                        'discount_description' => $scholarship->getDiscountDescriptionAttribute()
+                    ]
+                ];
+            }
+        }
+
+        // Jika ada bulan dengan beasiswa full, tolak pembayaran
+        if (!empty($monthsWithFullScholarship)) {
+            $monthList = array_map(
+                fn($m) => "{$m['month_name']} {$m['year']}",
+                $monthsWithFullScholarship
+            );
+
+            return $this->error(
+                "Siswa memiliki beasiswa penuh untuk bulan " . implode(', ', $monthList) . " dan tidak perlu membayar SPP",
+                [
+                    'months_with_full_scholarship' => $monthsWithFullScholarship,
+                    'error_type' => 'full_scholarship_payment_attempt'
+                ],
+                422
+            );
+        }
+
+        // ✅ VALIDASI BARU: Cek apakah siswa memiliki beasiswa PARTIAL dan jumlah yang dibayar salah
+        $monthsWithPartialScholarship = [];
+        $scholarshipCalculations = [];
+
+        foreach ($paymentData->paymentDetails as $detail) {
+            $scholarship = $student->getScholarshipForMonth($detail['year'], $detail['month']);
+
+            if ($scholarship) {
+                // Hitung jumlah yang seharusnya dibayar
+                $expectedAmount = $monthlyAmount - $scholarship->calculateDiscount($monthlyAmount);
+
+                if ($detail['amount'] != $expectedAmount) {
+                    $monthsWithPartialScholarship[] = [
+                        'month' => $detail['month'],
+                        'year' => $detail['year'],
+                        'month_name' => DateHelper::getMonthName($detail['month']),
+                        'amount_paid' => $detail['amount'],
+                        'amount_expected' => $expectedAmount,
+                        'scholarship' => [
+                            'name' => $scholarship->scholarship_name,
+                            'type' => $scholarship->type,
+                            'discount_percentage' => $scholarship->discount_percentage,
+                            'discount_amount' => $scholarship->discount_amount,
+                            'discount_description' => $scholarship->getDiscountDescriptionAttribute(),
+                            'original_amount' => $monthlyAmount,
+                            'expected_payment' => $expectedAmount
+                        ]
+                    ];
+                }
+
+                // Simpan perhitungan untuk validasi selanjutnya
+                $scholarshipCalculations[] = [
+                    'month' => $detail['month'],
+                    'year' => $detail['year'],
+                    'expected_amount' => $expectedAmount
+                ];
+            }
+        }
+
+        // Jika ada bulan dengan beasiswa partial yang jumlah pembayaran salah
+        if (!empty($monthsWithPartialScholarship)) {
+            $errorMessages = [];
+            foreach ($monthsWithPartialScholarship as $month) {
+                $errorMessages[] = "Bulan {$month['month_name']} {$month['year']}: " .
+                                "Dengan beasiswa {$month['scholarship']['name']} ({$month['scholarship']['discount_description']}), " .
+                                "seharusnya membayar Rp " . number_format($month['amount_expected'], 0, ',', '.') .
+                                " (Rp " . number_format($month['scholarship']['original_amount'], 0, ',', '.') .
+                                " - diskon), " .
+                                "tetapi membayar Rp " . number_format($month['amount_paid'], 0, ',', '.');
+            }
+
+            return $this->error(
+                "Pembayaran tidak sesuai dengan diskon beasiswa:\n" . implode("\n", $errorMessages),
+                [
+                    'months_with_incorrect_payment' => $monthsWithPartialScholarship,
+                    'error_type' => 'partial_scholarship_payment_mismatch'
+                ],
+                422
+            );
+        }
 
         // 4. Validasi bulan dalam tahun akademik
         foreach ($paymentData->paymentDetails as $detail) {
@@ -289,8 +406,8 @@ class SppService extends BaseService
             return $sequenceError;
         }
 
-        // 7. Validasi amount
-        $amountValidation = $this->validatePaymentAmounts($paymentData, $monthlyAmount, $sppSetting);
+        // 7. Validasi amount dengan beasiswa (dengan perhitungan yang lebih detail)
+        $amountValidation = $this->validatePaymentAmounts($paymentData, $monthlyAmount, $sppSetting, $student);
         if ($amountValidation['status'] === 'error') {
             return $amountValidation;
         }
@@ -336,41 +453,42 @@ class SppService extends BaseService
             $academicMonthOrder[$key] = $index + 1;
         }
 
-        // Urutkan bulan yang akan dibayar berdasarkan urutan akademik
-        $monthsToPay = $paymentData->paymentDetails;
-        usort($monthsToPay, function($a, $b) use ($academicMonthOrder) {
-            $keyA = "{$a['year']}-{$a['month']}";
-            $keyB = "{$b['year']}-{$b['month']}";
-            return ($academicMonthOrder[$keyA] ?? 0) <=> ($academicMonthOrder[$keyB] ?? 0);
-        });
+        // Cek apakah ada pembayaran sebelumnya
+        if (!empty($alreadyPaidMonths)) {
+            // Dapatkan urutan terakhir yang sudah dibayar
+            $lastPaidOrder = 0;
+            $lastPaidKey = null;
 
-        // Gabungkan dengan yang sudah dibayar
-        $allMonths = array_merge(
-            array_map(fn($m) => ['year' => $m['year'], 'month' => $m['month']], $alreadyPaidMonths),
-            array_map(fn($m) => ['year' => $m['year'], 'month' => $m['month']], $monthsToPay)
-        );
+            foreach ($alreadyPaidMonths as $paid) {
+                $key = "{$paid['year']}-{$paid['month']}";
+                if (isset($academicMonthOrder[$key])) {
+                    $order = $academicMonthOrder[$key];
+                    if ($order > $lastPaidOrder) {
+                        $lastPaidOrder = $order;
+                        $lastPaidKey = $key;
+                    }
+                }
+            }
 
-        // Urutkan semua bulan berdasarkan urutan akademik
-        usort($allMonths, function($a, $b) use ($academicMonthOrder) {
-            $keyA = "{$a['year']}-{$a['month']}";
-            $keyB = "{$b['year']}-{$b['month']}";
-            return ($academicMonthOrder[$keyA] ?? 0) <=> ($academicMonthOrder[$keyB] ?? 0);
-        });
+            // Dapatkan urutan minimum yang akan dibayar
+            $minOrderToPay = PHP_INT_MAX;
+            $minKeyToPay = null;
 
-        // Hapus duplikat
-        $uniqueMonths = array_unique($allMonths, SORT_REGULAR);
+            foreach ($paymentData->paymentDetails as $detail) {
+                $key = "{$detail['year']}-{$detail['month']}";
+                if (isset($academicMonthOrder[$key])) {
+                    $order = $academicMonthOrder[$key];
+                    if ($order < $minOrderToPay) {
+                        $minOrderToPay = $order;
+                        $minKeyToPay = $key;
+                    }
+                }
+            }
 
-        // Validasi tidak ada celah
-        for ($i = 0; $i < count($uniqueMonths) - 1; $i++) {
-            $currentKey = "{$uniqueMonths[$i]['year']}-{$uniqueMonths[$i]['month']}";
-            $nextKey = "{$uniqueMonths[$i + 1]['year']}-{$uniqueMonths[$i + 1]['month']}";
-
-            $currentOrder = $academicMonthOrder[$currentKey] ?? 0;
-            $nextOrder = $academicMonthOrder[$nextKey] ?? 0;
-
-            if ($nextOrder - $currentOrder > 1) {
-                // Ada celah
-                $missingOrders = range($currentOrder + 1, $nextOrder - 1);
+            // Validasi: bulan yang akan dibayar harus berurutan setelah yang terakhir dibayar
+            if ($lastPaidOrder > 0 && $minOrderToPay > $lastPaidOrder + 1) {
+                // Ada celah: hitung bulan yang terlewat
+                $missingOrders = range($lastPaidOrder + 1, $minOrderToPay - 1);
                 $missingMonths = [];
 
                 foreach ($missingOrders as $order) {
@@ -387,16 +505,68 @@ class SppService extends BaseService
                     }
                 }
 
-                $missingList = array_map(
-                    fn($m) => "{$m['month_name']} {$m['year']}",
-                    $missingMonths
-                );
+                if (!empty($missingMonths)) {
+                    $missingList = array_map(
+                        fn($m) => "{$m['month_name']} {$m['year']}",
+                        $missingMonths
+                    );
 
-                return $this->error(
-                    "Harap bayar bulan " . implode(', ', $missingList) . " terlebih dahulu",
-                    ['missing_months' => $missingMonths],
-                    422
-                );
+                    return $this->error(
+                        "Harap bayar bulan " . implode(', ', $missingList) . " terlebih dahulu",
+                        ['missing_months' => $missingMonths],
+                        422
+                    );
+                }
+            }
+        } else {
+            // Jika belum ada pembayaran sama sekali, harus mulai dari bulan pertama akademik
+            $firstAcademicMonth = $academicMonths[0];
+            $firstAcademicKey = "{$firstAcademicMonth['year']}-{$firstAcademicMonth['month']}";
+            $firstAcademicOrder = $academicMonthOrder[$firstAcademicKey] ?? 1;
+
+            $minOrderToPay = PHP_INT_MAX;
+            foreach ($paymentData->paymentDetails as $detail) {
+                $key = "{$detail['year']}-{$detail['month']}";
+                if (isset($academicMonthOrder[$key])) {
+                    $order = $academicMonthOrder[$key];
+                    if ($order < $minOrderToPay) {
+                        $minOrderToPay = $order;
+                    }
+                }
+            }
+
+            if ($minOrderToPay > $firstAcademicOrder) {
+                // Hitung bulan yang terlewat dari awal tahun akademik
+                $missingOrders = range($firstAcademicOrder, $minOrderToPay - 1);
+                $missingMonths = [];
+
+                foreach ($missingOrders as $order) {
+                    foreach ($academicMonths as $am) {
+                        $key = "{$am['year']}-{$am['month']}";
+                        if (($academicMonthOrder[$key] ?? 0) == $order) {
+                            $missingMonths[] = [
+                                'month' => $am['month'],
+                                'year' => $am['year'],
+                                'month_name' => $am['month_name']
+                            ];
+                            break;
+                        }
+                    }
+                }
+
+                if (!empty($missingMonths)) {
+                    $missingList = array_map(
+                        fn($m) => "{$m['month_name']} {$m['year']}",
+                        $missingMonths
+                    );
+
+                    return $this->error(
+                        "Pembayaran harus dimulai dari bulan pertama tahun akademik. Harap bayar bulan " .
+                        implode(', ', $missingList) . " terlebih dahulu",
+                        ['missing_months' => $missingMonths],
+                        422
+                    );
+                }
             }
         }
 
@@ -608,38 +778,80 @@ class SppService extends BaseService
         ];
     }
 
-    private function validatePaymentAmounts(PaymentData $paymentData, float $monthlyAmount, $sppSetting)
+    /**
+     * Validasi pembayaran dengan pertimbangan beasiswa
+     */
+    private function validatePaymentAmounts(PaymentData $paymentData, float $monthlyAmount, $sppSetting, $student)
     {
         $errors = [];
 
-        // Validasi amount per bulan
+        // Hitung expected subtotal dengan beasiswa per bulan
+        $expectedSubtotal = 0;
+        $scholarshipDetails = [];
+
         foreach ($paymentData->paymentDetails as $detail) {
-            if ($detail['amount'] != $monthlyAmount) {
+            // Hitung amount dengan beasiswa untuk bulan tertentu - PERBAIKAN DI SINI
+            $scholarshipCalculation = $student->calculateScholarshipDiscountForMonth(
+                $monthlyAmount,
+                $detail['year'],
+                $detail['month']
+            );
+
+            $expectedAmountPerMonth = $scholarshipCalculation['final_amount'];
+            $expectedSubtotal += $expectedAmountPerMonth;
+
+            // Simpan detail untuk validasi
+            $scholarshipDetails[] = [
+                'month' => $detail['month'],
+                'year' => $detail['year'],
+                'expected_amount' => $expectedAmountPerMonth,
+                'scholarship_calculation' => $scholarshipCalculation
+            ];
+        }
+
+        // Validasi amount per bulan
+        foreach ($paymentData->paymentDetails as $index => $detail) {
+            $expectedAmountPerMonth = $scholarshipDetails[$index]['expected_amount'];
+            $scholarshipCalculation = $scholarshipDetails[$index]['scholarship_calculation'];
+
+            if ($detail['amount'] != $expectedAmountPerMonth) {
                 $monthName = DateHelper::getMonthName($detail['month']);
-                $errors[] = "Amount untuk bulan {$monthName} {$detail['year']} tidak sesuai. " .
-                           "Seharusnya: Rp " . number_format($monthlyAmount, 0, ',', '.') .
-                           ", Yang dimasukkan: Rp " . number_format($detail['amount'], 0, ',', '.');
+                $expectedFormatted = number_format($expectedAmountPerMonth, 0, ',', '.');
+                $actualFormatted = number_format($detail['amount'], 0, ',', '.');
+
+                $message = "Amount untuk bulan {$monthName} {$detail['year']} tidak sesuai. ";
+
+                if ($scholarshipCalculation['has_scholarship']) {
+                    $originalFormatted = number_format($monthlyAmount, 0, ',', '.');
+                    $discountFormatted = number_format($scholarshipCalculation['discount_amount'], 0, ',', '.');
+                    $message .= "Dengan beasiswa {$scholarshipCalculation['scholarship']['name']} " .
+                            "(Rp {$originalFormatted} - Rp {$discountFormatted} = Rp {$expectedFormatted}), " .
+                            "Yang dimasukkan: Rp {$actualFormatted}";
+                } else {
+                    $message .= "Seharusnya: Rp {$expectedFormatted}, Yang dimasukkan: Rp {$actualFormatted}";
+                }
+
+                $errors[] = $message;
             }
         }
 
         // Validasi subtotal
-        $expectedSubtotal = count($paymentData->paymentDetails) * $monthlyAmount;
         if ($paymentData->subtotal != $expectedSubtotal) {
             $errors[] = "Subtotal tidak sesuai. " .
-                       "Seharusnya: Rp " . number_format($expectedSubtotal, 0, ',', '.') .
-                       " ({$expectedSubtotal}), " .
-                       "Yang dimasukkan: Rp " . number_format($paymentData->subtotal, 0, ',', '.') .
-                       " ({$paymentData->subtotal})";
+                    "Seharusnya: Rp " . number_format($expectedSubtotal, 0, ',', '.') .
+                    " ({$expectedSubtotal}), " .
+                    "Yang dimasukkan: Rp " . number_format($paymentData->subtotal, 0, ',', '.') .
+                    " ({$paymentData->subtotal})";
         }
 
         // Validasi total amount (termasuk diskon dan denda)
         $expectedTotal = $expectedSubtotal - $paymentData->discount + $paymentData->lateFee;
         if ($paymentData->totalAmount != $expectedTotal) {
             $errors[] = "Total amount tidak sesuai. " .
-                       "Seharusnya: Rp " . number_format($expectedTotal, 0, ',', '.') .
-                       " ({$expectedTotal}), " .
-                       "Yang dimasukkan: Rp " . number_format($paymentData->totalAmount, 0, ',', '.') .
-                       " ({$paymentData->totalAmount})";
+                    "Seharusnya: Rp " . number_format($expectedTotal, 0, ',', '.') .
+                    " ({$expectedTotal}), " .
+                    "Yang dimasukkan: Rp " . number_format($paymentData->totalAmount, 0, ',', '.') .
+                    " ({$paymentData->totalAmount})";
         }
 
         // Validasi denda keterlambatan jika applicable
@@ -653,8 +865,8 @@ class SppService extends BaseService
                 'Validasi nominal pembayaran gagal',
                 [
                     'errors' => $errors,
-                    'monthly_amount_setting' => $monthlyAmount,
-                    'grade_level' => $sppSetting->grade_level,
+                    'original_monthly_amount' => $monthlyAmount,
+                    'scholarship_details' => $scholarshipDetails,
                     'expected_subtotal' => $expectedSubtotal,
                     'expected_total' => $expectedTotal
                 ],

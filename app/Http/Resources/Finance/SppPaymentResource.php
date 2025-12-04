@@ -54,8 +54,8 @@ class SppPaymentResource extends JsonResource
                     'month' => $detail->month,
                     'year' => $detail->year,
                     'amount' => (float) $detail->amount,
-                    'created_at' => $detail->created_at,
-                    'updated_at' => $detail->updated_at,
+                    'created_at' => $this->formatTimestamp($detail->created_at),
+                    'updated_at' => $this->formatTimestamp($detail->updated_at),
                 ];
             })
         ];

@@ -65,8 +65,8 @@ class SppSettingService extends BaseService
                 return $validationResult;
             }
 
-            // Cek duplikasi
-            $existingSetting = $this->sppSettingRepository->getSettingByGradeLevel(
+            // **PERBAIKAN: Validasi duplikasi dengan academic_year_id dan grade_level**
+            $existingSetting = $this->sppSettingRepository->getSettingByGradeLevelAndAcademicYear(
                 $settingData->gradeLevel,
                 $settingData->academicYearId
             );
@@ -120,8 +120,8 @@ class SppSettingService extends BaseService
                 return $validationResult;
             }
 
-            // Cek duplikasi (kecuali untuk record yang sama)
-            $existingSetting = $this->sppSettingRepository->getSettingByGradeLevel(
+            // **PERBAIKAN: Validasi duplikasi (kecuali untuk record yang sama)**
+            $existingSetting = $this->sppSettingRepository->getSettingByGradeLevelAndAcademicYear(
                 $settingData->gradeLevel,
                 $settingData->academicYearId
             );
@@ -265,7 +265,7 @@ class SppSettingService extends BaseService
             $errors['due_date'] = ['Tanggal jatuh tempo harus antara 1 sampai 31'];
         }
 
-        // Validasi late fee jika diaktifkan
+        // **PERBAIKAN: Validasi late fee jika diaktifkan**
         if ($settingData->lateFeeEnabled) {
             if (!in_array($settingData->lateFeeType, ['fixed', 'percentage'])) {
                 $errors['late_fee_type'] = ['Tipe denda harus fixed atau percentage'];
@@ -279,7 +279,8 @@ class SppSettingService extends BaseService
                 $errors['late_fee_start_day'] = ['Tanggal mulai denda harus antara 1 sampai 31'];
             }
 
-            if ($settingData->lateFeeStartDay <= $settingData->dueDate) {
+            // **PERBAIKAN: Validasi hanya jika late_fee_start_day dan due_date tidak null**
+            if ($settingData->lateFeeStartDay && $settingData->dueDate && $settingData->lateFeeStartDay <= $settingData->dueDate) {
                 $errors['late_fee_start_day'] = ['Tanggal mulai denda harus setelah tanggal jatuh tempo'];
             }
         }
