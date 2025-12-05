@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Repositories\Interfaces;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 interface ScholarshipRepositoryInterface
 {
@@ -19,4 +20,5 @@ interface ScholarshipRepositoryInterface
     // Method baru untuk validasi akademik
     public function getScholarshipsByStudentAndAcademicYear(int $studentId, int $academicYearId);
     public function checkDateOverlap(int $studentId, string $startDate, string $endDate, ?int $excludeId = null);
+    public function getAllScholarshipsPaginated(array $filters = [], int $perPage = 5): LengthAwarePaginator;
 }

@@ -8,6 +8,7 @@ use App\Http\Resources\Finance\StudentBillsResource;
 use App\Services\Finance\SppService;
 use Illuminate\Http\Request;
 use Tymon\JWTAuth\Facades\JWTAuth;
+use App\Http\Resources\PaginationResource;
 
 class SppController extends Controller
 {
@@ -15,16 +16,31 @@ class SppController extends Controller
 
     public function getStudentsWithBills(Request $request)
     {
-        $result = $this->sppService->getStudentsWithBills($request->all());
+        // Get pagination parameters from request
+        $perPage = $request->query('per_page', 5);
+        $page = $request->query('page', 1);
+
+        // Merge with filters
+        $filters = array_merge($request->all(), [
+            'per_page' => $perPage,
+            'page' => $page
+        ]);
+
+        $result = $this->sppService->getStudentsWithBills($filters);
 
         if ($result['status'] === 'error') {
             return response()->json($result, $result['code']);
         }
 
+        $paginator = $result['data'];
+
+        $collection = $paginator->getCollection();
+
         return response()->json([
             'status' => 'success',
             'message' => $result['message'],
-            'data' => StudentBillsResource::collection($result['data'])
+            'data' => StudentBillsResource::collection($collection),
+            'pagination' => new PaginationResource($paginator)
         ], $result['code']);
     }
 

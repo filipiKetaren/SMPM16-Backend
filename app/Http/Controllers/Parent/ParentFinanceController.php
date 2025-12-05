@@ -48,4 +48,57 @@ class ParentFinanceController extends Controller
             'data' => new StudentFinanceDetailResource($result['data'])
         ], $result['code']);
     }
+
+    public function getSppHistory(Request $request): JsonResponse
+    {
+        $parent = $request->user();
+        $year = $request->query('year');
+
+        $result = $this->parentFinanceService->getSppHistory($parent->id, $year);
+
+        if ($result['status'] === 'error') {
+            return response()->json($result, $result['code']);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => $result['message'],
+            'data' => $result['data']
+        ], $result['code']);
+    }
+
+    public function getSavingsHistory(Request $request): JsonResponse
+    {
+        $parent = $request->user();
+        $year = $request->query('year');
+
+        $result = $this->parentFinanceService->getSavingsHistory($parent->id, $year);
+
+        if ($result['status'] === 'error') {
+            return response()->json($result, $result['code']);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => $result['message'],
+            'data' => $result['data']
+        ], $result['code']);
+    }
+
+    public function getSavingsSummary(Request $request): JsonResponse
+    {
+        $parent = $request->user();
+
+        $result = $this->parentFinanceService->getSavingsSummary($parent->id);
+
+        if ($result['status'] === 'error') {
+            return response()->json($result, $result['code']);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => $result['message'],
+            'data' => $result['data']
+        ], $result['code']);
+    }
 }

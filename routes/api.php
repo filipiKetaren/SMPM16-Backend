@@ -74,7 +74,6 @@ Route::middleware(['jwt', 'finance_admin', 'timezone'])->prefix('finance')->grou
     });
 
     Route::prefix('reports')->group(function () {
-        // Versi baru (hanya data untuk frontend)
         Route::get('/spp/data', [FinanceReportController::class, 'getSppReportData']);
         Route::get('/savings/data', [FinanceReportController::class, 'getSavingsReportData']);
         Route::get('/financial-summary/data', [FinanceReportController::class, 'getFinancialSummaryData']);
@@ -119,7 +118,10 @@ Route::middleware(['parent_auth', 'timezone'])->prefix('parent')->group(function
     });
 
     Route::prefix('finance')->group(function () {
-        Route::get('/history', [ParentFinanceController::class, 'getFinanceHistory']);
+        Route::get('/history', [ParentFinanceController::class, 'getFinanceHistory']); // Tetap ada untuk backward compatibility
         Route::get('/students/{studentId}/detail', [ParentFinanceController::class, 'getStudentFinanceDetail']);
+        Route::get('/spp-history', [ParentFinanceController::class, 'getSppHistory']);
+        Route::get('/savings-history', [ParentFinanceController::class, 'getSavingsHistory']);
+        Route::get('/savings-summary', [ParentFinanceController::class, 'getSavingsSummary']);
     });
 });

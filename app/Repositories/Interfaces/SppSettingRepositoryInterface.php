@@ -4,6 +4,7 @@ namespace App\Repositories\Interfaces;
 
 use App\Models\SppSetting;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 interface SppSettingRepositoryInterface
 {
@@ -16,4 +17,5 @@ interface SppSettingRepositoryInterface
     public function deleteSetting(int $id): bool;
     public function getActiveAcademicYearSettings(): Collection;
     public function getSettingByGradeLevelAndAcademicYear(int $gradeLevel, int $academicYearId): ?SppSetting;
+    public function getAllSettingsPaginated(array $filters = [], int $perPage = 5): LengthAwarePaginator;
 }

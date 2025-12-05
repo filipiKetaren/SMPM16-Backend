@@ -6,6 +6,8 @@ use App\Models\SavingsTransaction;
 use App\Repositories\Interfaces\SavingsRepositoryInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Pagination\LengthAwarePaginator;
+use App\Models\Student;
 
 class SavingsRepository implements SavingsRepositoryInterface
 {
@@ -84,5 +86,42 @@ class SavingsRepository implements SavingsRepositoryInterface
             ->orderBy('transaction_date', 'desc')
             ->orderBy('id', 'desc')
             ->get();
+    }
+
+    /**
+     * Get students with savings (paginated)
+     */
+    public function getStudentsWithSavingsPaginated(array $filters = [], int $perPage = 5): LengthAwarePaginator
+    {
+        $query = Student::with(['class', 'savingsTransactions' => function($q) {
+            $q->orderBy('transaction_date', 'desc')->orderBy('id', 'desc');
+        }])
+        ->where('status', 'active');
+
+        // Apply filters
+        if (isset($filters['class_id'])) {
+            $query->where('class_id', $filters['class_id']);
+        }
+
+        if (isset($filters['nis'])) {
+            $query->where('nis', 'like', '%' . $filters['nis'] . '%');
+        }
+
+        if (isset($filters['full_name'])) {
+            $query->where('full_name', 'like', '%' . $filters['full_name'] . '%');
+        }
+
+        if (isset($filters['grade_level'])) {
+            $query->whereHas('class', function($q) use ($filters) {
+                $q->where('grade_level', $filters['grade_level']);
+            });
+        }
+
+        // Filter students with savings balance > 0
+        if (isset($filters['has_savings']) && $filters['has_savings']) {
+            $query->whereHas('savingsTransactions');
+        }
+
+        return $query->orderBy('nis')->paginate($perPage);
     }
 }

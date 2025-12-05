@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Finance;
 use App\Http\Controllers\Controller;
 use App\Services\Finance\ScholarshipService;
 use Illuminate\Http\Request;
+use App\Http\Resources\PaginationResource;
 
 class ScholarshipController extends Controller
 {
@@ -15,16 +16,31 @@ class ScholarshipController extends Controller
      */
     public function index(Request $request)
     {
-        $result = $this->scholarshipService->getAllScholarships($request->all());
+        // Get pagination parameters from request
+        $perPage = $request->query('per_page', 5);
+        $page = $request->query('page', 1);
+
+        // Merge with filters
+        $filters = array_merge($request->all(), [
+            'per_page' => $perPage,
+            'page' => $page
+        ]);
+
+        $result = $this->scholarshipService->getAllScholarships($filters);
 
         if ($result['status'] === 'error') {
             return response()->json($result, $result['code']);
         }
 
+        $paginator = $result['data'];
+        $collection = $paginator->getCollection();
+
         return response()->json([
             'status' => 'success',
-            'data' => $result['data']
-        ]);
+            'message' => $result['message'],
+            'data' => $collection,
+            'pagination' => new PaginationResource($paginator)
+        ], $result['code']);
     }
 
     /**

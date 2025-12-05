@@ -27,35 +27,48 @@ class SppService extends BaseService
     public function getStudentsWithBills(array $filters = [])
     {
         try {
-            $students = $this->studentRepository
-                ->getActiveStudentsWithClassAndPayments($filters)
-                ->map(function($student) {
-                    try {
-                        return $this->calculateStudentBills($student);
-                    } catch (\Exception $e) {
-                        Log::error('Error calculating bills for student ' . $student->id . ': ' . $e->getMessage());
-                        return [
-                            'student' => [
-                                'id' => $student->id,
-                                'nis' => $student->nis,
-                                'full_name' => $student->full_name,
-                                'class' => $student->class->name ?? 'Tidak ada kelas',
-                                'grade_level' => $student->class->grade_level ?? 0,
-                            ],
-                            'bills' => [
-                                'year' => date('Y'),
-                                'monthly_amount' => 0,
-                                'unpaid_months' => [],
-                                'paid_months' => [],
-                                'total_unpaid' => 0,
-                                'unpaid_details' => [],
-                                'paid_details' => [],
-                            ]
-                        ];
-                    }
-                });
+            // Get pagination parameters
+            $perPage = isset($filters['per_page']) ? (int) $filters['per_page'] : 5;
+            $page = isset($filters['page']) ? (int) $filters['page'] : 1;
 
-            return $this->success($students, 'Data siswa dengan tagihan berhasil diambil', 200);
+            // Remove pagination parameters from filters
+            unset($filters['per_page'], $filters['page']);
+
+            // Get paginated students
+            $studentsPaginator = $this->studentRepository
+                ->getStudentsWithBillsPaginated($filters, $perPage);
+
+            // Process each student in the current page
+            $transformedData = $studentsPaginator->getCollection()->map(function($student) {
+                try {
+                    return $this->calculateStudentBills($student);
+                } catch (\Exception $e) {
+                    Log::error('Error calculating bills for student ' . $student->id . ': ' . $e->getMessage());
+                    return [
+                        'student' => [
+                            'id' => $student->id,
+                            'nis' => $student->nis,
+                            'full_name' => $student->full_name,
+                            'class' => $student->class->name ?? 'Tidak ada kelas',
+                            'grade_level' => $student->class->grade_level ?? 0,
+                        ],
+                        'bills' => [
+                            'year' => date('Y'),
+                            'monthly_amount' => 0,
+                            'unpaid_months' => [],
+                            'paid_months' => [],
+                            'total_unpaid' => 0,
+                            'unpaid_details' => [],
+                            'paid_details' => [],
+                        ]
+                    ];
+                }
+            });
+
+            // Replace collection with transformed data
+            $studentsPaginator->setCollection($transformedData);
+
+            return $this->success($studentsPaginator, 'Data siswa dengan tagihan berhasil diambil', 200);
 
         } catch (\Exception $e) {
             return $this->serverError('Gagal mengambil data siswa', $e);
@@ -79,6 +92,18 @@ class SppService extends BaseService
             if (!$academicYear) {
                 return $this->error('Tahun akademik tidak ditemukan', null, 404);
             }
+
+            // Cek status aktif
+            if (!$academicYear->is_active) {
+            return $this->error(
+                'Tahun akademik ' . $academicYear->name . ' tidak aktif',
+                [
+                    'academic_year' => $academicYear->toArray(),
+                    'message' => 'Silakan hubungi administrator untuk mengaktifkan tahun akademik'
+                ],
+                422
+            );
+        }
 
             // Dapatkan setting SPP
             $sppSetting = $this->sppSettingRepository->getSettingByGradeLevelAndAcademicYear(
@@ -264,6 +289,20 @@ class SppService extends BaseService
             return $this->error('Tahun akademik tidak ditemukan untuk siswa ini', null, 404);
         }
 
+        // Cek apakah tahun akademik aktif
+        if (!$academicYear->is_active) {
+            return $this->error(
+                'Tahun akademik ' . $academicYear->name . ' tidak aktif. Tidak dapat melakukan pembayaran.',
+                [
+                    'academic_year' => $academicYear->name,
+                    'is_active' => false,
+                    'start_date' => $academicYear->start_date->format('Y-m-d'),
+                    'end_date' => $academicYear->end_date->format('Y-m-d')
+                ],
+                422
+            );
+        }
+
         // 3. Dapatkan setting SPP
         $sppSetting = $this->sppSettingRepository->getSettingByGradeLevelAndAcademicYear(
             $student->class->grade_level,
@@ -280,7 +319,7 @@ class SppService extends BaseService
 
         $monthlyAmount = $sppSetting->monthly_amount;
 
-        // ✅ VALIDASI BARU: Cek apakah siswa memiliki beasiswa FULL untuk bulan yang akan dibayar
+        // Cek apakah siswa memiliki beasiswa FULL untuk bulan yang akan dibayar
         $monthsWithFullScholarship = [];
         foreach ($paymentData->paymentDetails as $detail) {
             $scholarship = $student->getScholarshipForMonth($detail['year'], $detail['month']);
@@ -316,7 +355,7 @@ class SppService extends BaseService
             );
         }
 
-        // ✅ VALIDASI BARU: Cek apakah siswa memiliki beasiswa PARTIAL dan jumlah yang dibayar salah
+        // Cek apakah siswa memiliki beasiswa PARTIAL dan jumlah yang dibayar salah
         $monthsWithPartialScholarship = [];
         $scholarshipCalculations = [];
 
@@ -1458,13 +1497,27 @@ class SppService extends BaseService
      */
     private function getAcademicYearForStudent($student)
     {
-        // Coba dapatkan dari class siswa
+        // Prioritaskan tahun akademik yang aktif
+        $activeAcademicYear = $this->academicYearRepository->getActiveAcademicYear();
+
+        // Jika siswa memiliki class dengan tahun akademik
         if ($student->class && $student->class->academicYear) {
-            return $student->class->academicYear;
+            $studentAcademicYear = $student->class->academicYear;
+
+            // Jika tahun akademik siswa tidak aktif, tapi ada tahun akademik aktif lain
+            if (!$studentAcademicYear->is_active && $activeAcademicYear) {
+                // Log warning (opsional)
+                Log::warning("Siswa ID {$student->id} berada di tahun akademik tidak aktif: {$studentAcademicYear->name}");
+
+                // Kembalikan tahun akademik aktif (jika ada)
+                return $activeAcademicYear;
+            }
+
+            return $studentAcademicYear;
         }
 
-        // Jika tidak ada, cari tahun akademik aktif
-        return $this->academicYearRepository->getActiveAcademicYear();
+        // Kembalikan tahun akademik aktif (atau null jika tidak ada)
+        return $activeAcademicYear;
     }
 
     /**

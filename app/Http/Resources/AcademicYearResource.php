@@ -4,9 +4,12 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Http\Resources\Traits\HasCustomTimestamps;
 
 class AcademicYearResource extends JsonResource
 {
+    use HasCustomTimestamps;
+
     public function toArray(Request $request): array
     {
         return [
@@ -15,8 +18,8 @@ class AcademicYearResource extends JsonResource
             'start_date' => $this->start_date,
             'end_date' => $this->end_date,
             'is_active' => (bool) $this->is_active,
-            'created_at' => $this->created_at,
-            'updated_at' => $this->updated_at,
+            'created_at' => $this->formatTimestamp($this->created_at),
+            'updated_at' => $this->formatTimestamp($this->updated_at),
         ];
     }
 }

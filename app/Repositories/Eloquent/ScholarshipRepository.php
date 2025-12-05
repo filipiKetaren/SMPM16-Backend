@@ -6,6 +6,7 @@ use App\Models\Scholarship;
 use App\Repositories\Interfaces\ScholarshipRepositoryInterface;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class ScholarshipRepository implements ScholarshipRepositoryInterface
 {
@@ -170,5 +171,79 @@ class ScholarshipRepository implements ScholarshipRepositoryInterface
         }
 
         return $query->exists();
+    }
+
+    public function getAllScholarshipsPaginated(array $filters = [], int $perPage = 5): LengthAwarePaginator
+    {
+        $query = Scholarship::with([
+            'student' => function($q) {
+                $q->select('id', 'nis', 'full_name', 'class_id');
+            },
+            'student.class' => function($q) {
+                $q->select('id', 'name', 'grade_level', 'academic_year_id');
+            },
+            'student.class.academicYear'
+        ]);
+
+        // Apply filters
+        if (isset($filters['status'])) {
+            $query->where('status', $filters['status']);
+        }
+
+        if (isset($filters['type'])) {
+            $query->where('type', $filters['type']);
+        }
+
+        if (isset($filters['student_id'])) {
+            $query->where('student_id', $filters['student_id']);
+        }
+
+        if (isset($filters['academic_year_id'])) {
+            $query->whereHas('student.class', function($q) use ($filters) {
+                $q->where('academic_year_id', $filters['academic_year_id']);
+            });
+        }
+
+        // Filter by student name
+        if (isset($filters['full_name'])) {
+            $query->whereHas('student', function($q) use ($filters) {
+                $q->where('full_name', 'like', '%' . $filters['full_name'] . '%');
+            });
+        }
+
+        // Filter by class
+        if (isset($filters['class_id'])) {
+            $query->whereHas('student', function($q) use ($filters) {
+                $q->where('class_id', $filters['class_id']);
+            });
+        }
+
+        // Filter by grade level
+        if (isset($filters['grade_level'])) {
+            $query->whereHas('student.class', function($q) use ($filters) {
+                $q->where('grade_level', $filters['grade_level']);
+            });
+        }
+
+        // Filter by scholarship name
+        if (isset($filters['scholarship_name'])) {
+            $query->where('scholarship_name', 'like', '%' . $filters['scholarship_name'] . '%');
+        }
+
+        // Filter by sponsor
+        if (isset($filters['sponsor'])) {
+            $query->where('sponsor', 'like', '%' . $filters['sponsor'] . '%');
+        }
+
+        // Filter by date range
+        if (isset($filters['start_date'])) {
+            $query->where('start_date', '>=', $filters['start_date']);
+        }
+
+        if (isset($filters['end_date'])) {
+            $query->where('end_date', '<=', $filters['end_date']);
+        }
+
+        return $query->orderBy('created_at', 'desc')->paginate($perPage);
     }
 }

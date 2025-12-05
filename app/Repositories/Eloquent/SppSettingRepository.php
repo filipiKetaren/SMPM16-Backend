@@ -6,6 +6,7 @@ use App\Models\SppSetting;
 use App\Models\Student;
 use App\Repositories\Interfaces\SppSettingRepositoryInterface;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class SppSettingRepository implements SppSettingRepositoryInterface
 {
@@ -93,5 +94,38 @@ class SppSettingRepository implements SppSettingRepositoryInterface
             })
             ->orderBy('grade_level')
             ->get();
+    }
+
+    /**
+     * Get all settings (paginated)
+     */
+    public function getAllSettingsPaginated(array $filters = [], int $perPage = 5): LengthAwarePaginator
+    {
+        $query = SppSetting::with('academicYear');
+
+        // Apply filters
+        if (isset($filters['academic_year_id'])) {
+            $query->where('academic_year_id', $filters['academic_year_id']);
+        }
+
+        if (isset($filters['grade_level'])) {
+            $query->where('grade_level', $filters['grade_level']);
+        }
+
+        if (isset($filters['is_active'])) {
+            if ($filters['is_active']) {
+                $query->whereHas('academicYear', function($q) {
+                    $q->where('is_active', true);
+                });
+            } else {
+                $query->whereHas('academicYear', function($q) {
+                    $q->where('is_active', false);
+                });
+            }
+        }
+
+        return $query->orderBy('academic_year_id', 'desc')
+                    ->orderBy('grade_level')
+                    ->paginate($perPage);
     }
 }
