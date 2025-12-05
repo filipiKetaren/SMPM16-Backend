@@ -3,9 +3,12 @@
 namespace App\Http\Resources\Finance;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Http\Resources\Traits\HasCustomTimestamps;
 
 class SppPaymentResource extends JsonResource
 {
+    use HasCustomTimestamps;
+
     public function toArray($request)
     {
         return [

@@ -19,8 +19,19 @@ class SppSettingService extends BaseService
     public function getAllSettings(array $filters = [])
     {
         try {
-            $settings = $this->sppSettingRepository->getAllSettings($filters);
-            return $this->success($settings, 'Data pengaturan SPP berhasil diambil', 200);
+            // Get pagination parameters
+            $perPage = isset($filters['per_page']) ? (int) $filters['per_page'] : 5;
+            $page = isset($filters['page']) ? (int) $filters['page'] : 1;
+
+            // Remove pagination parameters from filters
+            unset($filters['per_page'], $filters['page']);
+
+            // Get paginated settings with filters
+            $settingsPaginator = $this->sppSettingRepository
+                ->getAllSettingsPaginated($filters, $perPage);
+
+            return $this->success($settingsPaginator, 'Data pengaturan SPP berhasil diambil', 200);
+
         } catch (\Exception $e) {
             return $this->serverError('Gagal mengambil data pengaturan SPP', $e);
         }
@@ -120,7 +131,7 @@ class SppSettingService extends BaseService
                 return $validationResult;
             }
 
-            // **PERBAIKAN: Validasi duplikasi (kecuali untuk record yang sama)**
+            // Validasi duplikasi (kecuali untuk record yang sama)**
             $existingSetting = $this->sppSettingRepository->getSettingByGradeLevelAndAcademicYear(
                 $settingData->gradeLevel,
                 $settingData->academicYearId

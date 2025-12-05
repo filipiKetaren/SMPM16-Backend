@@ -296,28 +296,46 @@ class SavingsService extends BaseService
         }
     }
 
-    public function getAllStudentsWithSavings()
+    public function getAllStudentsWithSavings(array $filters = [])
     {
         try {
-            $students = $this->studentRepository->getActiveStudentsWithClassAndPayments()
-                ->map(function ($student) {
-                    $currentBalance = $this->savingsRepository->getStudentCurrentBalance($student->id);
+            // Get pagination parameters
+            $perPage = isset($filters['per_page']) ? (int) $filters['per_page'] : 5;
+            $page = isset($filters['page']) ? (int) $filters['page'] : 1;
 
-                    return [
-                        'student' => [
-                            'id' => $student->id,
-                            'nis' => $student->nis,
-                            'full_name' => $student->full_name,
-                            'class' => $student->class->name,
-                        ],
-                        'savings' => [
-                            'current_balance' => $currentBalance,
-                            'last_transaction_date' => $student->savingsTransactions->sortByDesc('transaction_date')->first()->transaction_date ?? null
-                        ]
-                    ];
-                });
+            // Remove pagination parameters from filters
+            unset($filters['per_page'], $filters['page']);
 
-            return $this->success($students, 'Data tabungan semua siswa berhasil diambil', 200);
+            // Get paginated students
+            $studentsPaginator = $this->studentRepository
+                ->getActiveStudentsWithClassPaginated($filters, $perPage);
+
+            // Process each student
+            $transformedData = $studentsPaginator->getCollection()->map(function ($student) {
+                // Calculate current balance from transactions
+                $currentBalance = 0;
+                if ($student->savingsTransactions->isNotEmpty()) {
+                    $currentBalance = (float) $student->savingsTransactions->first()->balance_after;
+                }
+
+                return [
+                    'student' => [
+                        'id' => $student->id,
+                        'nis' => $student->nis,
+                        'full_name' => $student->full_name,
+                        'class' => $student->class->name,
+                    ],
+                    'savings' => [
+                        'current_balance' => $currentBalance,
+                        'last_transaction_date' => $student->savingsTransactions->first()->transaction_date ?? null
+                    ]
+                ];
+            });
+
+            // Replace collection with transformed data
+            $studentsPaginator->setCollection($transformedData);
+
+            return $this->success($studentsPaginator, 'Data tabungan semua siswa berhasil diambil', 200);
 
         } catch (\Exception $e) {
             return $this->serverError('Gagal mengambil data tabungan semua siswa', $e);

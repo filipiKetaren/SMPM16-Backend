@@ -5,9 +5,11 @@ namespace App\Http\Resources\Auth;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Http\Resources\Traits\HasCustomTimestamps;
 
 class ParentResource extends JsonResource
 {
+    use HasCustomTimestamps;
     public function toArray(Request $request): array
     {
         return [
@@ -18,9 +20,9 @@ class ParentResource extends JsonResource
             'phone' => $this->phone,
             'photo' => $this->photo,
             'is_active' => $this->is_active,
-            'last_login_at' => $this->last_login_at?->format('Y-m-d H:i:s'),
-            'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
-            'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
+            'last_login_at' => $this->formatTimestamp($this->last_login_at),
+            'created_at' => $this->formatTimestamp($this->created_at),
+            'updated_at' => $this->formatTimestamp($this->updated_at),
             'students' => $this->students->map(function ($student) {
                 return [
                     'id' => $student->id,

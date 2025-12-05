@@ -8,6 +8,7 @@ use App\Http\Resources\Finance\Savings\StudentSavingsResource;
 use App\Services\Finance\SavingsService;
 use Illuminate\Http\Request;
 use Tymon\JWTAuth\Facades\JWTAuth;
+use App\Http\Resources\PaginationResource;
 
 class SavingsController extends Controller
 {
@@ -15,16 +16,31 @@ class SavingsController extends Controller
 
     public function getAllStudentsWithSavings(Request $request)
     {
-        $result = $this->savingsService->getAllStudentsWithSavings();
+        // Get pagination parameters from request
+        $perPage = $request->query('per_page', 5);
+        $page = $request->query('page', 1);
+
+        // Merge with filters
+        $filters = array_merge($request->all(), [
+            'per_page' => $perPage,
+            'page' => $page
+        ]);
+
+        $result = $this->savingsService->getAllStudentsWithSavings($filters);
 
         if ($result['status'] === 'error') {
             return response()->json($result, $result['code']);
         }
 
+        $paginator = $result['data'];
+        // PERBAIKAN: Akses data dengan benar
+        $collection = $paginator->getCollection();
+
         return response()->json([
             'status' => 'success',
             'message' => $result['message'],
-            'data' => StudentSavingsResource::collection($result['data'])
+            'data' => StudentSavingsResource::collection($collection),
+            'pagination' => new PaginationResource($paginator)
         ], $result['code']);
     }
 

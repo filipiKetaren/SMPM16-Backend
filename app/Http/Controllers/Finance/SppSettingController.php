@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Finance\SppSettingResource;
 use App\Services\Finance\SppSettingService;
 use Illuminate\Http\Request;
+use App\Http\Resources\PaginationResource;
 
 class SppSettingController extends Controller
 {
@@ -13,16 +14,32 @@ class SppSettingController extends Controller
 
     public function index(Request $request)
     {
-        $result = $this->sppSettingService->getAllSettings($request->all());
+        // Get pagination parameters from request
+        $perPage = $request->query('per_page', 5);
+        $page = $request->query('page', 1);
+
+        // Merge with filters
+        $filters = array_merge($request->all(), [
+            'per_page' => $perPage,
+            'page' => $page
+        ]);
+
+        $result = $this->sppSettingService->getAllSettings($filters);
 
         if ($result['status'] === 'error') {
             return response()->json($result, $result['code']);
         }
 
+        $paginator = $result['data'];
+
+        // PERBAIKAN: Akses data dengan benar
+        $collection = $paginator->getCollection();
+
         return response()->json([
             'status' => 'success',
             'message' => $result['message'],
-            'data' => SppSettingResource::collection($result['data'])
+            'data' => SppSettingResource::collection($collection),
+            'pagination' => new PaginationResource($paginator)
         ], $result['code']);
     }
 

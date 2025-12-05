@@ -21,8 +21,19 @@ class ScholarshipService extends BaseService
     public function getAllScholarships(array $filters = [])
     {
         try {
-            $scholarships = $this->scholarshipRepository->getAllWithStudent($filters);
-            return $this->success($scholarships, 'Data beasiswa berhasil diambil', 200);
+            // Get pagination parameters
+            $perPage = isset($filters['per_page']) ? (int) $filters['per_page'] : 5;
+            $page = isset($filters['page']) ? (int) $filters['page'] : 1;
+
+            // Remove pagination parameters from filters
+            unset($filters['per_page'], $filters['page']);
+
+            // Get paginated scholarships
+            $scholarshipsPaginator = $this->scholarshipRepository
+                ->getAllScholarshipsPaginated($filters, $perPage);
+
+            return $this->success($scholarshipsPaginator, 'Data beasiswa berhasil diambil', 200);
+
         } catch (\Exception $e) {
             return $this->serverError('Gagal mengambil data beasiswa', $e);
         }
