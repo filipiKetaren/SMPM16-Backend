@@ -51,34 +51,17 @@ class AcademicYear extends Model
         $startMonth = $this->start_month ?? 1;
         $endMonth = $this->end_month ?? 12;
 
-        // Jika start_month <= end_month (tidak melampaui tahun)
-        if ($startMonth <= $endMonth) {
-            for ($month = $startMonth; $month <= $endMonth; $month++) {
-                $months[] = [
-                    'month' => $month,
-                    'year' => $this->start_date->year,
-                    'month_name' => DateHelper::getMonthName($month) // Gunakan DateHelper
-                ];
-            }
-        } else {
-            // Jika start_month > end_month (melampaui tahun, contoh: Juli-Juni)
-            // Bulan dari start_month sampai Desember
-            for ($month = $startMonth; $month <= 12; $month++) {
-                $months[] = [
-                    'month' => $month,
-                    'year' => $this->start_date->year,
-                    'month_name' => DateHelper::getMonthName($month) // Gunakan DateHelper
-                ];
-            }
+        $current = Carbon::parse($this->start_date);
+        $end = Carbon::parse($this->end_date);
 
-            // Bulan dari Januari sampai end_month
-            for ($month = 1; $month <= $endMonth; $month++) {
-                $months[] = [
-                    'month' => $month,
-                    'year' => $this->start_date->year + 1,
-                    'month_name' => DateHelper::getMonthName($month) // Gunakan DateHelper
-                ];
-            }
+        // Loop melalui setiap bulan dari start_date sampai end_date
+        while ($current <= $end) {
+            $months[] = [
+                'month' => $current->month,
+                'year' => $current->year,
+                'month_name' => DateHelper::getMonthName($current->month)
+            ];
+            $current->addMonth();
         }
 
         return $months;

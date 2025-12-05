@@ -5,6 +5,8 @@ namespace App\Services\Parent;
 use App\Repositories\Interfaces\ParentFinanceRepositoryInterface;
 use App\Services\BaseService;
 use Carbon\Carbon;
+use App\Models\AcademicYear;
+use App\Models\SppPayment;
 
 class ParentFinanceService extends BaseService
 {
@@ -127,9 +129,14 @@ class ParentFinanceService extends BaseService
                 ], 'Validasi tahun gagal');
             }
 
-            // PERBAIKAN: Jika tahun tidak disediakan, gunakan tahun akademik aktif
+            // Gunakan tahun akademik aktif jika tidak ada tahun yang diminta
             if (!$year) {
-                $year = Carbon::now()->year;
+                $activeAcademicYear = AcademicYear::where('is_active', true)->first();
+                if ($activeAcademicYear) {
+                    $year = Carbon::parse($activeAcademicYear->start_date)->year;
+                } else {
+                    $year = Carbon::now()->year;
+                }
             }
 
             $currentYear = (int) $year;
@@ -144,19 +151,40 @@ class ParentFinanceService extends BaseService
             // Data siswa dengan info SPP
             $students = $this->getStudentsWithSppInfo($studentIds, $currentYear);
 
-            // PERBAIKAN: Dapatkan transaksi SPP dengan filter yang benar
-            $sppPayments = $this->parentFinanceRepository->getSppPaymentsByStudentIds($studentIds, $year);
+            // PERBAIKAN: Dapatkan transaksi SPP dengan rentang tahun akademik
+            $transactions = [];
+            $allSppPayments = collect();
+
+            foreach ($studentIds as $studentId) {
+                $student = $this->parentFinanceRepository->getStudentById($studentId);
+                if ($student && $student->class && $student->class->academicYear) {
+                    $academicYear = $student->class->academicYear;
+
+                    // Dapatkan pembayaran dalam rentang tahun akademik
+                    $sppPayments = SppPayment::with(['paymentDetails', 'student', 'creator'])
+                        ->where('student_id', $studentId)
+                        ->whereBetween('payment_date', [
+                            $academicYear->start_date,
+                            $academicYear->end_date
+                        ])
+                        ->orderBy('payment_date', 'desc')
+                        ->get();
+
+                    $allSppPayments = $allSppPayments->merge($sppPayments);
+                }
+            }
 
             // Format transaksi SPP
-            $transactions = $this->formatSppTransactions($sppPayments);
+            $transactions = $this->formatSppTransactions($allSppPayments);
+
+            // Hitung total SPP yang sudah dibayar
+            $totalSppPaid = $allSppPayments->sum('total_amount');
 
             $data = [
                 'period' => [
                     'year' => $currentYear,
                     'year_name' => "Tahun {$currentYear}",
-                    'note' => $currentYear == Carbon::now()->year ?
-                        'Tahun akademik aktif: ' . ($students[0]['academic_year_info']['name'] ?? 'Tidak tersedia') :
-                        'Data berdasarkan tahun kalender'
+                    'note' => $students[0]['academic_year_info']['name'] ?? 'Tahun akademik tidak tersedia'
                 ],
                 'students' => $students,
                 'transactions' => $transactions,
@@ -493,8 +521,10 @@ class ParentFinanceService extends BaseService
         // Format SPP payments
         foreach ($sppPayments as $payment) {
             foreach ($payment->paymentDetails as $detail) {
+                // PERBAIKAN: Pisah id, payment_id, dan payment_detail_id
                 $transactions[] = [
-                    'id' => 'spp_' . $payment->id . '_' . $detail->id,
+                    'id' => $detail->id, // Hanya id detail
+                    'payment_id' => $payment->id, // ID pembayaran terpisah
                     'type' => 'spp_payment',
                     'student_id' => $payment->student_id,
                     'student_name' => $payment->student->full_name,
@@ -517,8 +547,9 @@ class ParentFinanceService extends BaseService
 
         // Format savings transactions
         foreach ($savingsTransactions as $transaction) {
+            // PERBAIKAN: Hanya gunakan id transaksi
             $transactions[] = [
-                'id' => 'savings_' . $transaction->id,
+                'id' => $transaction->id, // Hanya id transaksi
                 'type' => 'savings_' . $transaction->transaction_type,
                 'student_id' => $transaction->student_id,
                 'student_name' => $transaction->student->full_name,
