@@ -8,7 +8,6 @@ use App\Models\SppPaymentDetail;
 use App\Models\SavingsTransaction;
 use App\Models\AcademicYear;
 use App\Repositories\Interfaces\ParentFinanceRepositoryInterface;
-use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class ParentFinanceRepository implements ParentFinanceRepositoryInterface
@@ -35,7 +34,7 @@ class ParentFinanceRepository implements ParentFinanceRepositoryInterface
         ->orderBy('created_at', 'desc');
 
         if ($year) {
-            $query->whereYear('payment_date', $year);
+            $query->whereYear('payment_date', (int)$year);
         }
 
         return $query->get();
@@ -52,7 +51,7 @@ class ParentFinanceRepository implements ParentFinanceRepositoryInterface
         ->orderBy('created_at', 'desc');
 
         if ($year) {
-            $query->whereYear('transaction_date', $year);
+            $query->whereYear('transaction_date', (int)$year);
         }
 
         return $query->get();
@@ -68,72 +67,11 @@ class ParentFinanceRepository implements ParentFinanceRepositoryInterface
         return $lastTransaction ? (float) $lastTransaction->balance_after : 0;
     }
 
-    /**
-     * PERBAIKAN: Hitung unpaid months berdasarkan tahun akademik
-     */
-    public function getStudentUnpaidMonths(int $studentId, int $year): array
+    public function getStudentUnpaidMonths(int $studentId, ?string $year = null): array
     {
-        // Dapatkan data siswa dengan kelas dan tahun akademik
-        $student = Student::with(['class.academicYear'])->find($studentId);
-
-        if (!$student || !$student->class || !$student->class->academicYear) {
-            return [];
-        }
-
-        $academicYear = $student->class->academicYear;
-
-        // Ambil bulan akademik dari tahun akademik (misal: 2024/2025 = Juli 2024 - Juni 2025)
-        $academicMonths = $academicYear->getAcademicMonths();
-
-        // Filter hanya bulan-bulan di tahun yang diminta
-        $filteredMonths = array_filter($academicMonths, function($month) use ($year) {
-            return $month['year'] == $year;
-        });
-
-        // Dapatkan bulan yang sudah dibayar untuk tahun akademik ini
-        $paidMonths = SppPaymentDetail::whereHas('payment', function($query) use ($studentId, $academicYear) {
-            $query->where('student_id', $studentId)
-                ->whereBetween('payment_date', [
-                    $academicYear->start_date,
-                    $academicYear->end_date
-                ]);
-        })
-        ->pluck('month')
-        ->toArray();
-
-        // Hitung bulan yang belum dibayar untuk tahun yang diminta
-        $unpaidMonths = [];
-        foreach ($filteredMonths as $monthData) {
-            if (!in_array($monthData['month'], $paidMonths)) {
-                $unpaidMonths[] = $monthData['month'];
-            }
-        }
-
-        sort($unpaidMonths); // Urutkan bulan
-        return $unpaidMonths;
-    }
-
-    /**
-     * Helper: Dapatkan bulan akademik untuk tahun tertentu
-     */
-    private function getAcademicMonthsForYear($academicYear, int $year): array
-    {
-        $academicMonths = [];
-        $current = Carbon::parse($academicYear->start_date);
-        $end = Carbon::parse($academicYear->end_date);
-
-        while ($current <= $end) {
-            if ($current->year == $year) {
-                $academicMonths[] = [
-                    'month' => $current->month,
-                    'year' => $current->year,
-                    'month_name' => $current->translatedFormat('F')
-                ];
-            }
-            $current->addMonth();
-        }
-
-        return $academicMonths;
+        $yearInt = $year ? (int)$year : null;
+        $unpaidMonthsDetail = $this->getStudentUnpaidMonthsWithDetail($studentId, $yearInt);
+        return array_column($unpaidMonthsDetail, 'month');
     }
 
     public function getStudentById(int $studentId)
@@ -141,11 +79,28 @@ class ParentFinanceRepository implements ParentFinanceRepositoryInterface
         return Student::with(['class.academicYear'])->find($studentId);
     }
 
-    // ================== METHOD BARU ==================
+    /**
+     * Helper method: Dapatkan tahun akademik untuk siswa
+     */
+    private function getAcademicYearForStudent($student): ?AcademicYear
+    {
+        // Prioritaskan tahun akademik aktif
+        $activeAcademicYear = AcademicYear::where('is_active', true)->first();
+        if ($activeAcademicYear) {
+            return $activeAcademicYear;
+        }
+
+        // Jika tidak ada tahun akademik aktif, gunakan dari kelas siswa
+        if ($student->class && $student->class->academicYear) {
+            return $student->class->academicYear;
+        }
+
+        return null;
+    }
 
     public function getStudentTotalSppPaid(int $studentId, int $year): float
     {
-        // PERBAIKAN: Hitung berdasarkan tahun akademik
+        // Hitung berdasarkan tahun akademik
         $student = $this->getStudentById($studentId);
         if (!$student || !$student->class || !$student->class->academicYear) {
             return 0;
@@ -162,27 +117,51 @@ class ParentFinanceRepository implements ParentFinanceRepositoryInterface
     }
 
     /**
-     * PERBAIKAN BARU: Dapatkan detail unpaid months dengan tahun akademik
+     * Dapatkan info tahun akademik untuk siswa
      */
-    public function getStudentUnpaidMonthsWithDetail(int $studentId, int $year): array
+    public function getStudentAcademicYearInfo(int $studentId): ?array
     {
         $student = $this->getStudentById($studentId);
+        if (!$student) {
+            return null;
+        }
 
-        if (!$student || !$student->class || !$student->class->academicYear) {
+        $academicYear = $this->getAcademicYearForStudent($student);
+        if (!$academicYear) {
+            return null;
+        }
+
+        return [
+            'id' => $academicYear->id,
+            'name' => $academicYear->name,
+            'start_date' => $academicYear->start_date->format('Y-m-d'),
+            'end_date' => $academicYear->end_date->format('Y-m-d'),
+            'start_month' => $academicYear->start_month,
+            'end_month' => $academicYear->end_month,
+            'is_active' => $academicYear->is_active
+        ];
+    }
+
+    /**
+     * Dapatkan detail unpaid months untuk tahun akademik (dengan opsi filter tahun)
+     */
+    public function getStudentUnpaidMonthsWithDetail(int $studentId, ?int $year = null): array
+    {
+        $student = $this->getStudentById($studentId);
+        if (!$student) {
             return [];
         }
 
-        $academicYear = $student->class->academicYear;
+        // Dapatkan tahun akademik
+        $academicYear = $this->getAcademicYearForStudent($student);
+        if (!$academicYear) {
+            return [];
+        }
 
-        // Ambil bulan akademik dari tahun akademik
-        $academicMonths = $academicYear->getAcademicMonths();
+        // Dapatkan SEMUA bulan akademik
+        $allAcademicMonths = $academicYear->getAcademicMonths();
 
-        // Filter hanya bulan-bulan di tahun yang diminta
-        $filteredMonths = array_filter($academicMonths, function($month) use ($year) {
-            return $month['year'] == $year;
-        });
-
-        // Dapatkan bulan yang sudah dibayar dengan detail
+        // Dapatkan SEMUA bulan yang sudah dibayar dalam rentang tahun akademik
         $paidMonthsDetails = SppPaymentDetail::whereHas('payment', function($query) use ($studentId, $academicYear) {
             $query->where('student_id', $studentId)
                 ->whereBetween('payment_date', [
@@ -203,7 +182,12 @@ class ParentFinanceRepository implements ParentFinanceRepositoryInterface
 
         // Hitung bulan yang belum dibayar
         $unpaidMonths = [];
-        foreach ($filteredMonths as $month) {
+        foreach ($allAcademicMonths as $month) {
+            // Jika ada filter tahun, hanya tampilkan bulan di tahun tersebut
+            if ($year && $month['year'] != $year) {
+                continue;
+            }
+
             $key = $month['month'] . '-' . $month['year'];
             if (!isset($paidMonthsMap[$key])) {
                 $unpaidMonths[] = [
@@ -214,9 +198,12 @@ class ParentFinanceRepository implements ParentFinanceRepositoryInterface
             }
         }
 
-        // Urutkan berdasarkan bulan
+        // Urutkan berdasarkan tahun lalu bulan
         usort($unpaidMonths, function($a, $b) {
-            return $a['month'] - $b['month'];
+            if ($a['year'] == $b['year']) {
+                return $a['month'] - $b['month'];
+            }
+            return $a['year'] - $b['year'];
         });
 
         return $unpaidMonths;
@@ -254,26 +241,108 @@ class ParentFinanceRepository implements ParentFinanceRepositoryInterface
     }
 
     /**
-     * Dapatkan info tahun akademik untuk siswa
+     * Get SPP payments with advanced filters
      */
-    public function getStudentAcademicYearInfo(int $studentId): ?array
-    {
-        $student = $this->getStudentById($studentId);
+    public function getSppPaymentsByStudentIdsWithFilters(
+        array $studentIds,
+        ?string $year = null,
+        ?string $month = null,
+        ?string $startDate = null,
+        ?string $endDate = null
+    ) {
+        $query = SppPayment::with([
+            'student.class.academicYear',
+            'paymentDetails',
+            'creator'
+        ])
+        ->whereIn('student_id', $studentIds)
+        ->orderBy('payment_date', 'desc')
+        ->orderBy('created_at', 'desc');
 
-        if (!$student || !$student->class || !$student->class->academicYear) {
-            return null;
+        // Gunakan whereDate untuk filter rentang tanggal
+        if ($startDate && $endDate) {
+            $query->whereDate('payment_date', '>=', $startDate)
+                ->whereDate('payment_date', '<=', $endDate);
+        } else {
+            // Apply year filter
+            if ($year) {
+                $query->whereYear('payment_date', (int)$year);
+            }
+
+            // Apply month filter
+            if ($month) {
+                $query->whereMonth('payment_date', (int)$month);
+            }
         }
 
-        $academicYear = $student->class->academicYear;
+        return $query->get();
+    }
 
-        return [
-            'id' => $academicYear->id,
-            'name' => $academicYear->name,
-            'start_date' => $academicYear->start_date->format('Y-m-d'),
-            'end_date' => $academicYear->end_date->format('Y-m-d'),
-            'start_month' => $academicYear->start_month,
-            'end_month' => $academicYear->end_month,
-            'is_active' => $academicYear->is_active
-        ];
+    /**
+     * Get savings transactions with advanced filters
+     */
+    public function getSavingsTransactionsByStudentIdsWithFilters(
+        array $studentIds,
+        ?string $year = null,
+        ?string $month = null,
+        ?string $startDate = null,
+        ?string $endDate = null
+    ) {
+        $query = SavingsTransaction::with([
+            'student.class',
+            'creator'
+        ])
+        ->whereIn('student_id', $studentIds)
+        ->orderBy('transaction_date', 'desc')
+        ->orderBy('created_at', 'desc');
+
+        // Gunakan whereDate untuk filter rentang tanggal
+        if ($startDate && $endDate) {
+            $query->whereDate('transaction_date', '>=', $startDate)
+                ->whereDate('transaction_date', '<=', $endDate);
+        } else {
+            // Apply year filter
+            if ($year) {
+                $query->whereYear('transaction_date', (int)$year);
+            }
+
+            // Apply month filter
+            if ($month) {
+                $query->whereMonth('transaction_date', (int)$month);
+            }
+        }
+
+        return $query->get();
+    }
+
+    /**
+     * Get total SPP paid with filters
+     */
+    public function getStudentTotalSppPaidWithFilters(
+        int $studentId,
+        ?string $year = null,
+        ?string $month = null,
+        ?string $startDate = null,
+        ?string $endDate = null
+    ): float {
+        $query = SppPayment::where('student_id', $studentId);
+
+        // Gunakan whereDate untuk filter rentang tanggal
+        if ($startDate && $endDate) {
+            $query->whereDate('payment_date', '>=', $startDate)
+                ->whereDate('payment_date', '<=', $endDate);
+        } else {
+            // Apply year filter
+            if ($year) {
+                $query->whereYear('payment_date', (int)$year);
+            }
+
+            // Apply month filter
+            if ($month) {
+                $query->whereMonth('payment_date', (int)$month);
+            }
+        }
+
+        return (float) $query->sum('total_amount');
     }
 }
