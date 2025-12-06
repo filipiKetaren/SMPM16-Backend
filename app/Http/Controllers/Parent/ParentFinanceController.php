@@ -17,8 +17,17 @@ class ParentFinanceController extends Controller
     {
         $parent = $request->user();
         $year = $request->query('year');
+        $month = $request->query('month');
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
 
-        $result = $this->parentFinanceService->getFinanceHistory($parent->id, $year);
+        $result = $this->parentFinanceService->getFinanceHistory(
+            $parent->id,
+            $year,
+            $month,
+            $startDate,
+            $endDate
+        );
 
         if ($result['status'] === 'error') {
             return response()->json($result, $result['code']);
@@ -53,8 +62,17 @@ class ParentFinanceController extends Controller
     {
         $parent = $request->user();
         $year = $request->query('year');
+        $month = $request->query('month');
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
 
-        $result = $this->parentFinanceService->getSppHistory($parent->id, $year);
+        $result = $this->parentFinanceService->getSppHistory(
+            $parent->id,
+            $year,
+            $month,
+            $startDate,
+            $endDate
+        );
 
         if ($result['status'] === 'error') {
             return response()->json($result, $result['code']);
@@ -71,8 +89,17 @@ class ParentFinanceController extends Controller
     {
         $parent = $request->user();
         $year = $request->query('year');
+        $month = $request->query('month');
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
 
-        $result = $this->parentFinanceService->getSavingsHistory($parent->id, $year);
+        $result = $this->parentFinanceService->getSavingsHistory(
+            $parent->id,
+            $year,
+            $month,
+            $startDate,
+            $endDate
+        );
 
         if ($result['status'] === 'error') {
             return response()->json($result, $result['code']);

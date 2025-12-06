@@ -118,7 +118,7 @@ Route::middleware(['parent_auth', 'timezone'])->prefix('parent')->group(function
     });
 
     Route::prefix('finance')->group(function () {
-        Route::get('/history', [ParentFinanceController::class, 'getFinanceHistory']); // Tetap ada untuk backward compatibility
+        Route::get('/history', [ParentFinanceController::class, 'getFinanceHistory']);
         Route::get('/students/{studentId}/detail', [ParentFinanceController::class, 'getStudentFinanceDetail']);
         Route::get('/spp-history', [ParentFinanceController::class, 'getSppHistory']);
         Route::get('/savings-history', [ParentFinanceController::class, 'getSavingsHistory']);

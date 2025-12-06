@@ -1322,15 +1322,24 @@ class SppService extends BaseService
 
     private function validateUpdatePayment($existingPayment, UpdatePaymentData $updateData)
     {
-        $paymentYear = $updateData->paymentDetails[0]['year'] ?? Carbon::now()->year;
-
         // Ambil data siswa dan setting
         $student = $this->studentRepository->findStudentWithClass($existingPayment->student_id);
         if (!$student) {
             return $this->notFoundError('Data siswa tidak ditemukan');
         }
 
-        $sppSetting = $this->sppSettingRepository->getSettingByGradeLevel($student->class->grade_level);
+        // Dapatkan tahun akademik untuk siswa
+        $academicYear = $this->getAcademicYearForStudent($student);
+        if (!$academicYear) {
+            return $this->error('Tahun akademik tidak ditemukan untuk siswa ini', null, 404);
+        }
+
+        // Dapatkan setting SPP
+        $sppSetting = $this->sppSettingRepository->getSettingByGradeLevelAndAcademicYear(
+            $student->class->grade_level,
+            $academicYear->id
+        );
+
         if (!$sppSetting) {
             return $this->error(
                 'Setting SPP tidak ditemukan untuk tingkat kelas ' . $student->class->grade_level,
@@ -1339,39 +1348,57 @@ class SppService extends BaseService
             );
         }
 
-        $paymentYear = $updateData->paymentDetails[0]['year'] ?? Carbon::now()->year;
+        $monthlyAmount = $sppSetting->monthly_amount;
 
-        // Ambil bulan yang sudah dibayar oleh siswa ini (kecuali pembayaran yang sedang diupdate)
-        $existingPaidMonths = $this->sppPaymentRepository->getStudentPaidMonths(
+        // Validasi bahwa bulan-bulan di updateData berada dalam tahun akademik
+        foreach ($updateData->paymentDetails as $detail) {
+            if (!$academicYear->isWithinAcademicYear($detail['month'], $detail['year'])) {
+                $monthName = DateHelper::getMonthName($detail['month']);
+                return $this->error(
+                    "Bulan {$monthName} {$detail['year']} tidak termasuk dalam tahun akademik {$academicYear->name}",
+                    null,
+                    422
+                );
+            }
+        }
+
+        // Dapatkan bulan yang sudah dibayar oleh siswa ini (kecuali pembayaran yang sedang diupdate) dalam tahun akademik
+        $alreadyPaidMonths = $this->sppPaymentRepository->getStudentPaidAcademicMonthsWithYear(
             $existingPayment->student_id,
-            $paymentYear
+            $academicYear->id
         );
 
         // Hapus bulan-bulan dari pembayaran ini dari daftar paid months
-        $currentPaymentMonths = [];
+        $existingPaymentMonths = [];
         foreach ($existingPayment->paymentDetails as $detail) {
-            if ($detail->year == $paymentYear) {
-                $key = array_search($detail->month, $existingPaidMonths);
-                if ($key !== false) {
-                    unset($existingPaidMonths[$key]);
-                }
-            }
+            $key = "{$detail->year}-{$detail['month']}";
+            $existingPaymentMonths[$key] = true;
         }
-        $existingPaidMonths = array_values($existingPaidMonths);
+
+        $alreadyPaidMonths = array_filter($alreadyPaidMonths, function($paid) use ($existingPaymentMonths) {
+            $key = "{$paid['year']}-{$paid['month']}";
+            return !isset($existingPaymentMonths[$key]);
+        });
 
         // Validasi duplikasi pembayaran
-        $conflicts = $this->checkPaymentConflictsForUpdate($updateData, $existingPaidMonths, $paymentYear);
+        $conflicts = $this->checkPaymentConflictsForUpdateWithAcademicYear($updateData, $alreadyPaidMonths, $academicYear);
         if (!empty($conflicts)) {
             return $this->formatValidationError($conflicts, 'Bulan berikut sudah dibayar di pembayaran lain: ');
         }
 
-        // Validasi urutan pembayaran
-        $sequenceError = $this->validatePaymentSequenceForUpdate($existingPayment->student_id, $updateData, $existingPaidMonths, $paymentYear);
+        // Validasi urutan berdasarkan tahun akademik
+        $sequenceError = $this->validateAcademicYearSequenceForUpdate(
+            $existingPayment->student_id,
+            $academicYear,
+            $updateData,
+            $existingPayment
+        );
         if ($sequenceError) {
             return $sequenceError;
         }
 
-        $amountValidation = $this->validateUpdatePaymentAmounts($updateData, $sppSetting->monthly_amount, $sppSetting);
+        // Validasi amount dengan beasiswa (jika ada)
+        $amountValidation = $this->validateUpdatePaymentAmounts($updateData, $monthlyAmount, $sppSetting, $student);
         if ($amountValidation['status'] === 'error') {
             return $amountValidation;
         }
@@ -1386,37 +1413,216 @@ class SppService extends BaseService
     }
 
     /**
+     * Validasi urutan update berdasarkan tahun akademik
+     */
+    private function validateAcademicYearSequenceForUpdate($studentId, $academicYear, $updateData, $existingPayment)
+    {
+        // Dapatkan daftar bulan akademik
+        $academicMonths = $academicYear->getAcademicMonths();
+
+        // Buat map urutan akademik
+        $academicMonthOrder = [];
+        foreach ($academicMonths as $index => $am) {
+            $key = "{$am['year']}-{$am['month']}";
+            $academicMonthOrder[$key] = $index + 1;
+        }
+
+        // Dapatkan bulan yang sudah dibayar (kecuali bulan dari existingPayment)
+        $alreadyPaidMonths = $this->sppPaymentRepository->getStudentPaidAcademicMonthsWithYear(
+            $studentId,
+            $academicYear->id
+        );
+
+        // Hapus bulan-bulan yang ada di existingPayment dari alreadyPaidMonths
+        $existingPaymentMonths = [];
+        foreach ($existingPayment->paymentDetails as $detail) {
+            $key = "{$detail->year}-{$detail->month}";
+            $existingPaymentMonths[$key] = true;
+        }
+
+        $alreadyPaidMonths = array_filter($alreadyPaidMonths, function($paid) use ($existingPaymentMonths) {
+            $key = "{$paid['year']}-{$paid['month']}";
+            return !isset($existingPaymentMonths[$key]);
+        });
+
+        // Gabungkan bulan yang sudah dibayar dengan bulan yang akan diupdate
+        $allPaidMonths = $alreadyPaidMonths;
+
+        // Tambahkan bulan dari updateData
+        foreach ($updateData->paymentDetails as $detail) {
+            $allPaidMonths[] = [
+                'month' => $detail['month'],
+                'year' => $detail['year']
+            ];
+        }
+
+        // Validasi urutan
+        $paidMonthOrders = [];
+        foreach ($allPaidMonths as $paid) {
+            $key = "{$paid['year']}-{$paid['month']}";
+            if (isset($academicMonthOrder[$key])) {
+                $paidMonthOrders[] = $academicMonthOrder[$key];
+            }
+        }
+
+        // Urutkan order yang sudah dibayar
+        sort($paidMonthOrders);
+
+        // Validasi: semua bulan yang dibayar harus berurutan tanpa celah
+        if (!empty($paidMonthOrders)) {
+            $minOrder = min($paidMonthOrders);
+            $maxOrder = max($paidMonthOrders);
+
+            // Hitung urutan yang diharapkan
+            $expectedOrders = range($minOrder, $maxOrder);
+
+            // Bandingkan dengan yang sudah dibayar
+            $missingOrders = array_diff($expectedOrders, $paidMonthOrders);
+
+            if (!empty($missingOrders)) {
+                // Konversi missingOrders ke bulan
+                $missingMonths = [];
+                foreach ($missingOrders as $order) {
+                    foreach ($academicMonths as $am) {
+                        $key = "{$am['year']}-{$am['month']}";
+                        if (($academicMonthOrder[$key] ?? 0) == $order) {
+                            $missingMonths[] = [
+                                'month' => $am['month'],
+                                'year' => $am['year'],
+                                'month_name' => $am['month_name']
+                            ];
+                            break;
+                        }
+                    }
+                }
+
+                if (!empty($missingMonths)) {
+                    $missingList = array_map(
+                        fn($m) => "{$m['month_name']} {$m['year']}",
+                        $missingMonths
+                    );
+
+                    return $this->error(
+                        "Harap bayar bulan " . implode(', ', $missingList) . " terlebih dahulu",
+                        ['missing_months' => $missingMonths],
+                        422
+                    );
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function checkPaymentConflictsForUpdateWithAcademicYear(UpdatePaymentData $updateData, array $alreadyPaidMonths, $academicYear)
+    {
+        $conflicts = [];
+        foreach ($updateData->paymentDetails as $detail) {
+            // Pastikan bulan tersebut dalam tahun akademik
+            if ($academicYear->isWithinAcademicYear($detail['month'], $detail['year'])) {
+                foreach ($alreadyPaidMonths as $paid) {
+                    if ($detail['month'] == $paid['month'] && $detail['year'] == $paid['year']) {
+                        $monthName = DateHelper::getMonthName($detail['month']);
+                        $conflicts[] = "{$monthName} {$detail['year']}";
+                    }
+                }
+            }
+        }
+        return $conflicts;
+    }
+
+    /**
      * Validasi amount untuk update payment
      */
-    private function validateUpdatePaymentAmounts(UpdatePaymentData $updateData, float $monthlyAmount, $sppSetting)
+    private function validateUpdatePaymentAmounts(UpdatePaymentData $updateData, float $monthlyAmount, $sppSetting, $student)
     {
         $errors = [];
 
-        // Validasi amount per bulan
+        // Hitung expected subtotal dengan beasiswa per bulan
+        $expectedSubtotal = 0;
+        $scholarshipDetails = [];
+
         foreach ($updateData->paymentDetails as $detail) {
-            if ($detail['amount'] != $monthlyAmount) {
+            // Hitung amount dengan beasiswa untuk bulan tertentu
+            $scholarshipCalculation = $student->calculateScholarshipDiscountForMonth(
+                $monthlyAmount,
+                $detail['year'],
+                $detail['month']
+            );
+
+            $expectedAmountPerMonth = $scholarshipCalculation['final_amount'];
+            $expectedSubtotal += $expectedAmountPerMonth;
+
+            // Simpan detail untuk validasi
+            $scholarshipDetails[] = [
+                'month' => $detail['month'],
+                'year' => $detail['year'],
+                'expected_amount' => $expectedAmountPerMonth,
+                'scholarship_calculation' => $scholarshipCalculation
+            ];
+        }
+
+        // Validasi amount per bulan
+        foreach ($updateData->paymentDetails as $index => $detail) {
+            $expectedAmountPerMonth = $scholarshipDetails[$index]['expected_amount'];
+            $scholarshipCalculation = $scholarshipDetails[$index]['scholarship_calculation'];
+
+            if ($detail['amount'] != $expectedAmountPerMonth) {
                 $monthName = DateHelper::getMonthName($detail['month']);
-                $errors[] = "Amount untuk bulan {$monthName} {$detail['year']} tidak sesuai. " .
-                           "Seharusnya: Rp " . number_format($monthlyAmount, 0, ',', '.');
+                $expectedFormatted = number_format($expectedAmountPerMonth, 0, ',', '.');
+                $actualFormatted = number_format($detail['amount'], 0, ',', '.');
+
+                $message = "Amount untuk bulan {$monthName} {$detail['year']} tidak sesuai. ";
+
+                if ($scholarshipCalculation['has_scholarship']) {
+                    $originalFormatted = number_format($monthlyAmount, 0, ',', '.');
+                    $discountFormatted = number_format($scholarshipCalculation['discount_amount'], 0, ',', '.');
+                    $message .= "Dengan beasiswa {$scholarshipCalculation['scholarship']['name']} " .
+                            "(Rp {$originalFormatted} - Rp {$discountFormatted} = Rp {$expectedFormatted}), " .
+                            "Yang dimasukkan: Rp {$actualFormatted}";
+                } else {
+                    $message .= "Seharusnya: Rp {$expectedFormatted}, Yang dimasukkan: Rp {$actualFormatted}";
+                }
+
+                $errors[] = $message;
             }
         }
 
         // Validasi subtotal
-        $expectedSubtotal = count($updateData->paymentDetails) * $monthlyAmount;
         if ($updateData->subtotal != $expectedSubtotal) {
-            $errors[] = "Subtotal tidak sesuai. Seharusnya: Rp " . number_format($expectedSubtotal, 0, ',', '.');
+            $errors[] = "Subtotal tidak sesuai. " .
+                    "Seharusnya: Rp " . number_format($expectedSubtotal, 0, ',', '.') .
+                    " ({$expectedSubtotal}), " .
+                    "Yang dimasukkan: Rp " . number_format($updateData->subtotal, 0, ',', '.') .
+                    " ({$updateData->subtotal})";
         }
 
-        // Validasi total amount
+        // Validasi total amount (termasuk diskon dan denda)
         $expectedTotal = $expectedSubtotal - $updateData->discount + $updateData->lateFee;
         if ($updateData->totalAmount != $expectedTotal) {
-            $errors[] = "Total amount tidak sesuai. Seharusnya: Rp " . number_format($expectedTotal, 0, ',', '.');
+            $errors[] = "Total amount tidak sesuai. " .
+                    "Seharusnya: Rp " . number_format($expectedTotal, 0, ',', '.') .
+                    " ({$expectedTotal}), " .
+                    "Yang dimasukkan: Rp " . number_format($updateData->totalAmount, 0, ',', '.') .
+                    " ({$updateData->totalAmount})";
+        }
+
+        // Validasi denda keterlambatan jika applicable
+        $lateFeeValidation = $this->validateLateFeeForUpdate($updateData, $sppSetting);
+        if ($lateFeeValidation) {
+            $errors[] = $lateFeeValidation;
         }
 
         if (!empty($errors)) {
             return $this->error(
                 'Validasi nominal pembayaran gagal',
-                ['errors' => $errors],
+                [
+                    'errors' => $errors,
+                    'original_monthly_amount' => $monthlyAmount,
+                    'scholarship_details' => $scholarshipDetails,
+                    'expected_subtotal' => $expectedSubtotal,
+                    'expected_total' => $expectedTotal
+                ],
                 422
             );
         }
@@ -1424,47 +1630,61 @@ class SppService extends BaseService
         return $this->success(null, 'Validasi nominal berhasil', 200);
     }
 
-    private function checkPaymentConflictsForUpdate(UpdatePaymentData $updateData, array $existingPaidMonths, int $paymentYear): array
+    private function validateLateFeeForUpdate(UpdatePaymentData $updateData, $sppSetting)
     {
-        $conflicts = [];
-        foreach ($updateData->paymentDetails as $detail) {
-            if ($detail['year'] == $paymentYear && in_array($detail['month'], $existingPaidMonths)) {
-                $monthName = DateHelper::getMonthName($detail['month']);
-                $conflicts[] = "{$monthName} {$detail['year']}";
-            }
+        if ($updateData->lateFee > 0 && !$sppSetting->late_fee_enabled) {
+            return "Denda keterlambatan tidak diizinkan untuk tingkat kelas ini";
         }
-        return $conflicts;
-    }
 
-    private function validatePaymentSequenceForUpdate(int $studentId, UpdatePaymentData $updateData, array $existingPaidMonths, int $paymentYear)
-    {
-        $monthsToPay = array_column($updateData->paymentDetails, 'month');
-        sort($monthsToPay);
+        if ($sppSetting->late_fee_enabled && $updateData->lateFee > 0) {
+            $paymentDate = Carbon::parse($updateData->paymentDate);
+            $dueDate = Carbon::createFromDate(
+                $updateData->paymentDetails[0]['year'],
+                $updateData->paymentDetails[0]['month'],
+                $sppSetting->due_date
+            );
 
-        $allPaidMonths = array_merge($existingPaidMonths, $monthsToPay);
-        $allPaidMonths = array_unique($allPaidMonths);
-        sort($allPaidMonths);
+            // Jika pembayaran masih sebelum due date, tidak boleh ada denda
+            if ($paymentDate->lte($dueDate) && $updateData->lateFee > 0) {
+                return "Tidak boleh ada denda karena pembayaran masih sebelum tanggal jatuh tempo";
+            }
 
-        if (!empty($allPaidMonths)) {
-            $allPossibleMonths = range(1, max($allPaidMonths));
-            $missingMonths = array_diff($allPossibleMonths, $allPaidMonths);
-
-            if (!empty($missingMonths)) {
-                $firstMissingMonth = min($missingMonths);
-                $monthName = DateHelper::getMonthName($firstMissingMonth);
-                return $this->error(
-                    "Harap bayar bulan {$monthName} {$paymentYear} terlebih dahulu sebelum melanjutkan ke bulan berikutnya",
-                    [
-                        'missing_month' => $firstMissingMonth,
-                        'missing_month_name' => $monthName,
-                        'year' => $paymentYear
-                    ],
-                    422
-                );
+            // Validasi jumlah denda sesuai setting
+            $expectedLateFee = $this->calculateExpectedLateFeeForUpdate($updateData, $sppSetting);
+            if ($updateData->lateFee != $expectedLateFee) {
+                return "Jumlah denda tidak sesuai. Seharusnya: Rp " .
+                    number_format($expectedLateFee, 0, ',', '.') .
+                    ", Yang dimasukkan: Rp " . number_format($updateData->lateFee, 0, ',', '.');
             }
         }
 
         return null;
+    }
+
+    private function calculateExpectedLateFeeForUpdate(UpdatePaymentData $updateData, $sppSetting)
+    {
+        if (!$sppSetting->late_fee_enabled) {
+            return 0;
+        }
+
+        $paymentDate = Carbon::parse($updateData->paymentDate);
+        $totalLateFee = 0;
+
+        foreach ($updateData->paymentDetails as $detail) {
+            $dueDate = Carbon::createFromDate($detail['year'], $detail['month'], $sppSetting->due_date);
+
+            // Jika telat bayar
+            if ($paymentDate->gt($dueDate)) {
+                if ($sppSetting->late_fee_type === 'percentage') {
+                    $lateFee = $detail['amount'] * ($sppSetting->late_fee_amount / 100);
+                } else {
+                    $lateFee = $sppSetting->late_fee_amount;
+                }
+                $totalLateFee += $lateFee;
+            }
+        }
+
+        return $totalLateFee;
     }
 
     private function validatePaymentCalculationsForUpdate(UpdatePaymentData $updateData)

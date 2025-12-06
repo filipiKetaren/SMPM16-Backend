@@ -47,19 +47,16 @@ class AcademicYear extends Model
     {
         $months = [];
 
-        // Pastikan start_month dan end_month ada nilainya
-        $startMonth = $this->start_month ?? 1;
-        $endMonth = $this->end_month ?? 12;
+        $start = \Carbon\Carbon::parse($this->start_date);
+        $end = \Carbon\Carbon::parse($this->end_date);
 
-        $current = Carbon::parse($this->start_date);
-        $end = Carbon::parse($this->end_date);
+        $current = $start->copy();
 
-        // Loop melalui setiap bulan dari start_date sampai end_date
         while ($current <= $end) {
             $months[] = [
                 'month' => $current->month,
                 'year' => $current->year,
-                'month_name' => DateHelper::getMonthName($current->month)
+                'month_name' => \App\Helpers\DateHelper::getMonthName($current->month)
             ];
             $current->addMonth();
         }
